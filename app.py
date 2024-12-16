@@ -11,6 +11,7 @@ limiter = Limiter(
     default_limits=["10 per minute"]  # Global limit: 10 requests per minute
 )
 
+
 @app.route('/api/resource', methods=['GET'])
 @limiter.limit("5 per minute")  # Specific route limit: 5 requests per minute
 def limited_resource():
