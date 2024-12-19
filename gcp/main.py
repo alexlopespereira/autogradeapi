@@ -1,27 +1,31 @@
 import pandas as pd
+from flask import jsonify
 from markupsafe import escape
 
+
 def pandas_http(request):
-    df = pd.DataFrame(
-        {
-            "Name": [
-                "Braund, Mr. Owen Harris",
-                "Allen, Mr. William Henry",
-                "Bonnell, Miss. Elizabeth",
-            ],
-            "Age": [22, 35, 58],
-            "Sex": ["male", "male", "female"],
-        }
-    )
+    try:
+        data = request.get_json()
 
-    request_json = request.get_json(silent=True)
-    request_args = request.args
+        if not data or "code" not in data or "inputs" not in data:
+            return jsonify({"error": "Invalid input format. 'code' and 'inputs' are required."}), 400
 
-    if request_json and 'name' in request_json:
-        name = request_json['name']
-    elif request_args and 'name' in request_args:
-        name = request_args['name']
-    else:
-        name = 'World'
+        user_code = data["code"]
+        inputs = data["inputs"]
+        email = data["email"]
 
-    return 'Hello {}! here is your data: \n{}'.format(escape(name), df)
+        # Execute the code
+        exec_globals = {}
+        exec(user_code, exec_globals)
+
+        # Identify the function name
+        func_name = [name for name in exec_globals if callable(exec_globals[name])][-1]
+        func = exec_globals[func_name]
+
+        # Call the function with inputs
+        result = func(*inputs)
+
+        return jsonify({"status": "success", "output": result}), 200
+
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500

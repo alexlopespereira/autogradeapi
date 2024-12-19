@@ -1,28 +1,52 @@
-from flask import Flask, request, jsonify, render_template
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-
-from util import test_student_code, execute_code_with_timeout, analyze_code_safety, test_cases
+from flask import Flask, request, jsonify
+import ast
+import time
+import aiohttp
+import asyncio
 
 app = Flask(__name__)
 
-# Initialize Flask-Limiter with a key function to use the remote IP address
-limiter = Limiter(
-    get_remote_address,
-    app=app,
-    default_limits=["1 per minute"]  # Global limit: 10 requests per minute
-)
+# Test case definitions
+test_cases = [
+    {"input": (3, 5), "expected": 8, "function_id": "AAA", "testcase_id": "BBB"},
+    {"input": (10, 20), "expected": 30, "function_id": "AAA", "testcase_id": "BBC"},
+    {"input": (-1, 1), "expected": 0, "function_id": "AAA", "testcase_id": "BBD"},
+]
 
+# Forbidden keywords and constructs
+FORBIDDEN_KEYWORDS = ["import", "open", "eval", "exec", "os", "sys", "subprocess"]
+
+def analyze_code_safety(code):
+    """
+    Analyzes the code for forbidden keywords or constructs.
+    Args:
+        code (str): The code submitted by the user.
+    Returns:
+        tuple: (is_safe, error_message)
+    """
+    try:
+        # Parse the code into an AST (Abstract Syntax Tree)
+        tree = ast.parse(code)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import) or isinstance(node, ast.ImportFrom):
+                return False, "Imports are not allowed."
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                if node.func.id in FORBIDDEN_KEYWORDS:
+                    return False, f"Use of '{node.func.id}' is not allowed."
+        return True, None
+    except SyntaxError as e:
+        return False, f"Syntax error in code: {e}"
 
 @app.route('/api/validate', methods=['POST'])
-@limiter.limit("10 per minute")  # Specific route limit: 5 requests per minute
-def validate_student_code():
+async def validate_student_code():
     """
     Flask API endpoint to validate a student's function implementation.
 
     Expects a JSON payload with:
     - implementation (str): The function implementation as a string.
-    - id (str): The ID of the test cases to validate against.
+    - function_id (str): The ID of the function to validate against.
+    - testcase_id (str): The ID of the specific test case to validate.
+    - user_email (str): The email of the user submitting the implementation.
 
     Returns:
         JSON response with validation results.
@@ -31,64 +55,48 @@ def validate_student_code():
         # Parse the JSON payload
         data = request.get_json()
 
-        if not data or "implementation" not in data or "id" not in data:
-            return jsonify({"error": "Invalid request format. 'implementation' and 'id' are required."}), 400
+        if not data or "implementation" not in data or "function_id" not in data or "testcase_id" not in data or "user_email" not in data:
+            return jsonify({"error": "Invalid request format. 'implementation', 'function_id', 'testcase_id', and 'user_email' are required."}), 400
 
         implementation_text = data["implementation"]
-        test_id = data["id"]
+        function_id = data["function_id"]
+        testcase_id = data["testcase_id"]
+        user_email = data["user_email"]
 
         # Analyze code safety
         is_safe, error_message = analyze_code_safety(implementation_text)
         if not is_safe:
             return jsonify({"error": f"Unsafe code: {error_message}"}), 400
 
-        # Filter test cases by ID
-        filtered_test_cases = [tc for tc in test_cases if tc["id"] == test_id]
-        if not filtered_test_cases:
-            return jsonify({"error": f"No test cases found for ID: {test_id}"}), 404
+        # Find the specific test case
+        test_case = next((tc for tc in test_cases if tc["function_id"] == function_id and tc["testcase_id"] == testcase_id), None)
+        if not test_case:
+            return jsonify({"error": f"No test case found for function_id: {function_id} and testcase_id: {testcase_id}"}), 404
 
-        # Execute the test cases
-        results = {"id": test_id, "test_results": []}
-        for i, case in enumerate(filtered_test_cases):
-            exec_result = execute_code_with_timeout(implementation_text, case["input"])
-            if exec_result["status"] == "success":
-                results["test_results"].append({
-                    "test_case": i + 1,
-                    "status": "passed" if exec_result["output"] == case["expected"] else "failed",
-                    "output": exec_result["output"],
-                    "expected": case["expected"],
-                })
-            else:
-                results["test_results"].append({
-                    "test_case": i + 1,
-                    "status": exec_result["status"],
-                    "error": exec_result.get("error", "")
-                })
+        # Call the cloud function asynchronously
+        cloud_function_url = "https://us-central1-autograde-314802.cloudfunctions.net/pandas-gcp-test"
+        async with aiohttp.ClientSession() as session:
+            async with session.post(cloud_function_url, json={"code": implementation_text, "inputs": test_case["input"], "user_email": user_email}) as cloud_response:
+                if cloud_response.status != 200:
+                    return jsonify({"error": f"Error from cloud function: {await cloud_response.text()}"}), cloud_response.status
 
-        results["all_tests_passed"] = all(
-            r["status"] == "passed" for r in results["test_results"]
-        )
-        return jsonify(results)
+                cloud_result = await cloud_response.json()
+
+        result = {
+            "function_id": function_id,
+            "testcase_id": testcase_id,
+            "status": "passed" if cloud_result["status"] == "success" and cloud_result["output"] == test_case["expected"] else "failed",
+            "output": cloud_result.get("output"),
+            "expected": test_case["expected"],
+            "error": cloud_result.get("error"),
+            "user_email": user_email
+        }
+
+        return jsonify(result)
 
     except Exception as e:
         return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
 
-
-#
-# @app.route('/api/unlimited', methods=['GET'])
-# def unlimited_resource():
-#     return jsonify({"message": "This endpoint has no rate limit."})
-
-# Error handler for rate limit exceeded
-@app.errorhandler(429)
-def rate_limit_exceeded(e):
-    return jsonify({"error": "rate limit exceeded", "message": str(e.description)}), 429
-
-
-@app.route("/")
-def hello_world():
-    return render_template("index.html")
-
-
+# Run the Flask app
 if __name__ == '__main__':
     app.run(debug=True)
