@@ -3,14 +3,14 @@ import ast
 import time
 import aiohttp
 import asyncio
-from google.auth.transport.requests import Request
+from google.auth.transport.requests import Request, AuthorizedSession
 from google.oauth2 import service_account
 
 app = Flask(__name__)
 
 # Test case definitions
 test_cases = [
-    {"input": (3, 5), "expected": 8, "function_id": "AAA", "testcase_id": "BBB"},
+    {"input": [3, 5], "expected": 8, "function_id": "AAA", "testcase_id": "BBB"},
     {"input": (10, 20), "expected": 30, "function_id": "AAA", "testcase_id": "BBC"},
     {"input": (-1, 1), "expected": 0, "function_id": "AAA", "testcase_id": "BBD"},
 ]
@@ -90,6 +90,21 @@ async def validate_student_code():
             'Content-Type': 'application/json'
         }
 
+        credentials = service_account.IDTokenCredentials.from_service_account_file(
+            './key.json',
+            target_audience=cloud_function_url
+        )
+
+        # Create authenticated session
+        authed_session = AuthorizedSession(credentials)
+
+        # Make the request
+        response = authed_session.post(
+            cloud_function_url,
+            json={"code": implementation_text.replace("\\\\", "\\"), "inputs": test_case["input"], "user_email": user_email},
+            headers={'Content-Type': 'application/json'}
+        )
+        print(response.json())
         async with aiohttp.ClientSession() as session:
             async with session.post(cloud_function_url, json={"code": implementation_text, "inputs": test_case["input"], "user_email": user_email}, headers=headers) as cloud_response:
                 if cloud_response.status != 200:
