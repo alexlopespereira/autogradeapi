@@ -3,6 +3,8 @@ import ast
 import time
 import aiohttp
 import asyncio
+from google.auth.transport.requests import Request
+from google.oauth2 import service_account
 
 app = Flask(__name__)
 
@@ -25,8 +27,10 @@ def analyze_code_safety(code):
         tuple: (is_safe, error_message)
     """
     try:
+        # Replace escaped newlines with actual newlines
+        formatted_code = code.replace("\\n", "\n")
         # Parse the code into an AST (Abstract Syntax Tree)
-        tree = ast.parse(code)
+        tree = ast.parse(formatted_code)
         for node in ast.walk(tree):
             if isinstance(node, ast.Import) or isinstance(node, ast.ImportFrom):
                 return False, "Imports are not allowed."
@@ -73,10 +77,21 @@ async def validate_student_code():
         if not test_case:
             return jsonify({"error": f"No test case found for function_id: {function_id} and testcase_id: {testcase_id}"}), 404
 
-        # Call the cloud function asynchronously
+        # Set up the authenticated call
         cloud_function_url = "https://us-central1-autograde-314802.cloudfunctions.net/pandas-gcp-test"
+        credentials = service_account.IDTokenCredentials.from_service_account_file(
+            './key.json', target_audience=cloud_function_url
+        )
+        request_adapter = Request()
+        credentials.refresh(request_adapter)
+
+        headers = {
+            'Authorization': f'Bearer {credentials.token}',
+            'Content-Type': 'application/json'
+        }
+
         async with aiohttp.ClientSession() as session:
-            async with session.post(cloud_function_url, json={"code": implementation_text, "inputs": test_case["input"], "user_email": user_email}) as cloud_response:
+            async with session.post(cloud_function_url, json={"code": implementation_text, "inputs": test_case["input"], "user_email": user_email}, headers=headers) as cloud_response:
                 if cloud_response.status != 200:
                     return jsonify({"error": f"Error from cloud function: {await cloud_response.text()}"}), cloud_response.status
 
@@ -97,6 +112,5 @@ async def validate_student_code():
     except Exception as e:
         return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
 
-# Run the Flask app
 if __name__ == '__main__':
     app.run(debug=True)
