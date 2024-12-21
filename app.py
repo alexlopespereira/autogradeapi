@@ -174,9 +174,7 @@ async def validate_student_code():
         service_account_info,
         target_audience=cloud_function_url
     )
-    # credentials = service_account.IDTokenCredentials.from_service_account_file(
-    #     './key.json', target_audience=cloud_function_url
-    # )
+
     request_adapter = Request()
     credentials.refresh(request_adapter)
     headers = {
