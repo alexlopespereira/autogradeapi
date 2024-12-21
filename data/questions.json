@@ -1,0 +1,5 @@
+[
+    {"input": [3, 5], "expected": 8, "function_id": "A1-E2", "testcase_id": "BBB"},
+    {"input": [10, 20], "expected": 30, "function_id": "A1-E2", "testcase_id": "BBC"},
+    {"input": [-1, 1], "expected": 0, "function_id": "A1-E2", "testcase_id": "BBD"}
+]

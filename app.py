@@ -43,12 +43,14 @@ flow = Flow.from_client_config(
     scopes=["https://www.googleapis.com/auth/userinfo.email"],
     redirect_uri="https://seal-app-pmncf.ondigitalocean.app/callback"
 )
+test_cases_url = os.environ.get("TEST_CASES_URL")
+response = requests.get(test_cases_url)
+response.raise_for_status()  # Raise HTTPError for bad responses (4XX, 5XX)
 
-test_cases = [
-    {"input": [3, 5], "expected": 8, "function_id": "A1-E2", "testcase_id": "BBB"},
-    {"input": (10, 20), "expected": 30, "function_id": "A1-E2", "testcase_id": "BBC"},
-    {"input": (-1, 1), "expected": 0, "function_id": "A1-E2", "testcase_id": "BBD"},
-]
+# Parse the JSON response
+test_cases = response.json()
+
+
 
 FORBIDDEN_KEYWORDS = ["import", "open", "eval", "exec", "os", "sys", "subprocess"]
 
