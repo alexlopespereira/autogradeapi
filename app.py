@@ -50,43 +50,7 @@ response.raise_for_status()  # Raise HTTPError for bad responses (4XX, 5XX)
 # Parse the JSON response
 test_cases = response.json()
 
-
-
 FORBIDDEN_KEYWORDS = ["import", "open", "eval", "exec", "os", "sys", "subprocess"]
-
-# @app.route("/login")
-# def login():
-#     """Redirect the user to the Google OAuth login page."""
-#     authorization_url, _ = flow.authorization_url()
-#     return redirect(authorization_url)
-#
-# @app.route("/callback")
-# def callback():
-#     """Handle the OAuth callback and validate the user."""
-#     print("test")
-#     print(f"Callback hit: {request.url}")
-#     print(f"Query Parameters: {request.args}")
-#     flow.fetch_token(authorization_response=request.url)
-#
-#     # Verify the ID token
-#     credentials = flow.credentials
-#     id_token = credentials.id_token
-#     info = verify_oauth2_token(id_token, Request())
-#
-#     # Extract email and validate against authorized users
-#     email = info.get("email")
-#     if email in AUTHORIZED_USERS:
-#         session["user_email"] = email
-#         return jsonify({"message": f"Welcome, {email}!"})
-#     else:
-#         return jsonify({"error": "Unauthorized user"}), 403
-
-def google_cloud_function_mockup(payload):
-    from main import call_python
-    response = call_python(payload, DEBUG=True)
-    result = response[0].get_json()
-    result['error'] = ''
-    return result
 
 
 def prompt_completion(user_prompt):
@@ -121,24 +85,21 @@ def analyze_code_safety(code):
 
 
 async def execute_test_case(session, cloud_function_url, headers, generated_code, test_case):
-    if DEBUG:
-        cloud_result = google_cloud_function_mockup({"code": generated_code, "inputs": test_case["input"]})
-    else:
-        async with session.post(
-                cloud_function_url,
-                json={"code": generated_code, "inputs": test_case["input"]},
-                headers=headers
-        ) as cloud_response:
-            if cloud_response.status != 200:
-                return {
-                    "testcase_id": test_case["testcase_id"],
-                    "input": test_case["input"],
-                    "expected": test_case["expected"],
-                    "actual": None,
-                    "passed": False,
-                    "error": f"Error from cloud function: {await cloud_response.text()}"
-                }
-            cloud_result = await cloud_response.json()
+    async with session.post(
+            cloud_function_url,
+            json={"code": generated_code, "inputs": test_case["input"]},
+            headers=headers
+    ) as cloud_response:
+        if cloud_response.status != 200:
+            return {
+                "testcase_id": test_case["testcase_id"],
+                "input": test_case["input"],
+                "expected": test_case["expected"],
+                "actual": None,
+                "passed": False,
+                "error": f"Error from cloud function: {await cloud_response.text()}"
+            }
+        cloud_result = await cloud_response.json()
 
     actual_output = cloud_result.get("output")
     return {
