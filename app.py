@@ -39,7 +39,7 @@ AUTHORIZED_USERS = {"alexlopespereira@gmail.com", "alex.pereira.tablet@gmail.com
 flow = Flow.from_client_config(
     credentials,
     scopes=["https://www.googleapis.com/auth/userinfo.email"],
-    redirect_uri="https://seal-app-pmncf.ondigitalocean.app/"
+    redirect_uri="https://seal-app-pmncf.ondigitalocean.app/callback"
 )
 
 test_cases = [
