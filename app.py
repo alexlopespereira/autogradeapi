@@ -1,35 +1,105 @@
-from flask import Flask, request, jsonify
+import json
+import os
+import re
+from flask import Flask, request, jsonify, redirect, session, url_for
 import ast
-import time
+from openai import OpenAI
+from flask.json.provider import JSONProvider
 import aiohttp
 import asyncio
-from google.auth.transport.requests import Request, AuthorizedSession
 from google.oauth2 import service_account
+from google.auth.transport.requests import Request
+from google.oauth2.id_token import verify_oauth2_token
+from google_auth_oauthlib.flow import Flow
+
+class UTF8JSONProvider(JSONProvider):
+    def dumps(self, obj, **kwargs):
+        kwargs.setdefault('ensure_ascii', False)
+        return json.dumps(obj, **kwargs)
+
+    def loads(self, s, **kwargs):
+        try:
+            if isinstance(s, bytes):
+                s = s.decode('utf-8')
+            return json.loads(s, **kwargs)
+        except UnicodeDecodeError:
+            return json.loads(s.decode('latin-1'), **kwargs)
+
 
 app = Flask(__name__)
+app.json_provider_class = UTF8JSONProvider
+app.json = UTF8JSONProvider(app)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY")
+DEBUG = os.environ.get("DEBUG", None) == "True"
 
-# Test case definitions
+os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"  # For local testing, disable HTTPS requirement
+CLIENT_SECRETS_FILE = "client_secret_oauth.json"  # Downloaded JSON file from Google Console
+AUTHORIZED_USERS = {"alexlopespereira@gmail.com", "alex.pereira.tablet@gmail.com"}
+flow = Flow.from_client_secrets_file(
+    CLIENT_SECRETS_FILE,
+    scopes=["https://www.googleapis.com/auth/userinfo.email"],
+    redirect_uri="https://seal-app-pmncf.ondigitalocean.app/"
+)
+
 test_cases = [
-    {"input": [3, 5], "expected": 8, "function_id": "AAA", "testcase_id": "BBB"},
-    {"input": (10, 20), "expected": 30, "function_id": "AAA", "testcase_id": "BBC"},
-    {"input": (-1, 1), "expected": 0, "function_id": "AAA", "testcase_id": "BBD"},
+    {"input": [3, 5], "expected": 8, "function_id": "A1-E2", "testcase_id": "BBB"},
+    {"input": (10, 20), "expected": 30, "function_id": "A1-E2", "testcase_id": "BBC"},
+    {"input": (-1, 1), "expected": 0, "function_id": "A1-E2", "testcase_id": "BBD"},
 ]
 
-# Forbidden keywords and constructs
 FORBIDDEN_KEYWORDS = ["import", "open", "eval", "exec", "os", "sys", "subprocess"]
 
+@app.route("/login")
+def login():
+    """Redirect the user to the Google OAuth login page."""
+    authorization_url, _ = flow.authorization_url()
+    return redirect(authorization_url)
+
+@app.route("/callback")
+def callback():
+    """Handle the OAuth callback and validate the user."""
+    flow.fetch_token(authorization_response=request.url)
+
+    # Verify the ID token
+    credentials = flow.credentials
+    id_token = credentials.id_token
+    info = verify_oauth2_token(id_token, Request())
+
+    # Extract email and validate against authorized users
+    email = info.get("email")
+    if email in AUTHORIZED_USERS:
+        session["user_email"] = email
+        return jsonify({"message": f"Welcome, {email}!"})
+    else:
+        return jsonify({"error": "Unauthorized user"}), 403
+
+def google_cloud_function_mockup(payload):
+    from main import call_python
+    response = call_python(payload, DEBUG=True)
+    result = response[0].get_json()
+    result['error'] = ''
+    return result
+
+
+def prompt_completion(user_prompt):
+    client = OpenAI()
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant that generates Python functions."},
+            {"role": "user",
+             "content": f"In your answer return only the python code, and no text before neither after the code. Write a Python function for the following prompt:\n{user_prompt}"}
+        ],
+        max_tokens=150
+    )
+    generated_code = response.choices[0].message.content.strip().replace("```","")
+    generated_code = re.sub(r"^python\s*", "", generated_code)
+    return generated_code
+
+
 def analyze_code_safety(code):
-    """
-    Analyzes the code for forbidden keywords or constructs.
-    Args:
-        code (str): The code submitted by the user.
-    Returns:
-        tuple: (is_safe, error_message)
-    """
     try:
-        # Replace escaped newlines with actual newlines
         formatted_code = code.replace("\\n", "\n")
-        # Parse the code into an AST (Abstract Syntax Tree)
         tree = ast.parse(formatted_code)
         for node in ast.walk(tree):
             if isinstance(node, ast.Import) or isinstance(node, ast.ImportFrom):
@@ -41,91 +111,98 @@ def analyze_code_safety(code):
     except SyntaxError as e:
         return False, f"Syntax error in code: {e}"
 
+
+async def execute_test_case(session, cloud_function_url, headers, generated_code, test_case):
+    if DEBUG:
+        cloud_result = google_cloud_function_mockup({"code": generated_code, "inputs": test_case["input"]})
+    else:
+        async with session.post(
+                cloud_function_url,
+                json={"code": generated_code, "inputs": test_case["input"]},
+                headers=headers
+        ) as cloud_response:
+            if cloud_response.status != 200:
+                return {
+                    "testcase_id": test_case["testcase_id"],
+                    "input": test_case["input"],
+                    "expected": test_case["expected"],
+                    "actual": None,
+                    "passed": False,
+                    "error": f"Error from cloud function: {await cloud_response.text()}"
+                }
+            cloud_result = await cloud_response.json()
+
+    actual_output = cloud_result.get("output")
+    return {
+        "testcase_id": test_case["testcase_id"],
+        "input": test_case["input"],
+        "expected": test_case["expected"],
+        "actual": actual_output,
+        "passed": actual_output == test_case["expected"],
+        "error": cloud_result.get("error", "")
+    }
+
+
 @app.route('/api/validate', methods=['POST'])
 async def validate_student_code():
-    """
-    Flask API endpoint to validate a student's function implementation.
-
-    Expects a JSON payload with:
-    - implementation (str): The function implementation as a string.
-    - function_id (str): The ID of the function to validate against.
-    - testcase_id (str): The ID of the specific test case to validate.
-    - user_email (str): The email of the user submitting the implementation.
-
-    Returns:
-        JSON response with validation results.
-    """
+    from flask import session
+    if "user_email" not in session:
+        return redirect(url_for("login"))
     try:
-        # Parse the JSON payload
         data = request.get_json()
+        if not data or "prompt" not in data or "function_id" not in data or "user_email" not in data:
+            return jsonify({"error": "Invalid request format"}), 400
 
-        if not data or "implementation" not in data or "function_id" not in data or "testcase_id" not in data or "user_email" not in data:
-            return jsonify({"error": "Invalid request format. 'implementation', 'function_id', 'testcase_id', and 'user_email' are required."}), 400
-
-        implementation_text = data["implementation"]
+        user_prompt = data["prompt"]
         function_id = data["function_id"]
-        testcase_id = data["testcase_id"]
         user_email = data["user_email"]
 
-        # Analyze code safety
-        is_safe, error_message = analyze_code_safety(implementation_text)
+        generated_code = prompt_completion(user_prompt)
+        is_safe, error_message = analyze_code_safety(generated_code)
         if not is_safe:
             return jsonify({"error": f"Unsafe code: {error_message}"}), 400
 
-        # Find the specific test case
-        test_case = next((tc for tc in test_cases if tc["function_id"] == function_id and tc["testcase_id"] == testcase_id), None)
-        if not test_case:
-            return jsonify({"error": f"No test case found for function_id: {function_id} and testcase_id: {testcase_id}"}), 404
+        relevant_test_cases = [tc for tc in test_cases if tc["function_id"] == function_id]
+        if not relevant_test_cases:
+            return jsonify({"error": "No test cases found for this function_id"}), 404
 
-        # Set up the authenticated call
-        cloud_function_url = "https://us-central1-autograde-314802.cloudfunctions.net/pandas-gcp-test"
+
+        cloud_function_url = os.environ.get("GCP_FUNC_URL")
         credentials = service_account.IDTokenCredentials.from_service_account_file(
             './key.json', target_audience=cloud_function_url
         )
         request_adapter = Request()
         credentials.refresh(request_adapter)
-
         headers = {
             'Authorization': f'Bearer {credentials.token}',
             'Content-Type': 'application/json'
         }
 
-        credentials = service_account.IDTokenCredentials.from_service_account_file(
-            './key.json',
-            target_audience=cloud_function_url
-        )
-
-        # Create authenticated session
-        authed_session = AuthorizedSession(credentials)
-
-        # Make the request
-        response = authed_session.post(
-            cloud_function_url,
-            json={"code": implementation_text.replace("\\\\", "\\"), "inputs": test_case["input"], "user_email": user_email},
-            headers={'Content-Type': 'application/json'}
-        )
-        print(response.json())
+        test_results = []
         async with aiohttp.ClientSession() as session:
-            async with session.post(cloud_function_url, json={"code": implementation_text, "inputs": test_case["input"], "user_email": user_email}, headers=headers) as cloud_response:
-                if cloud_response.status != 200:
-                    return jsonify({"error": f"Error from cloud function: {await cloud_response.text()}"}), cloud_response.status
+            tasks = [
+                execute_test_case(session, cloud_function_url, headers, generated_code, test_case)
+                for test_case in relevant_test_cases
+            ]
+            test_results = await asyncio.gather(*tasks)
 
-                cloud_result = await cloud_response.json()
+        passed_count = sum(1 for result in test_results if result["passed"])
 
         result = {
             "function_id": function_id,
-            "testcase_id": testcase_id,
-            "status": "passed" if cloud_result["status"] == "success" and cloud_result["output"] == test_case["expected"] else "failed",
-            "output": cloud_result.get("output"),
-            "expected": test_case["expected"],
-            "error": cloud_result.get("error"),
-            "user_email": user_email
+            "user_email": user_email,
+            "code": generated_code,
+            "test_results": test_results,
+            "total_tests": len(test_results),
+            "passed_tests": passed_count,
+            "success_rate": passed_count / len(test_results) if test_results else 0
         }
 
         return jsonify(result)
 
     except Exception as e:
         return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
+
 
 if __name__ == '__main__':
     app.run(debug=True)

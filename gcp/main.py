@@ -1,32 +1,32 @@
 import pandas as pd
 from flask import jsonify
-from markupsafe import escape
 
 
-def pandas_http(request):
-    try:
-        data = request.get_json()
+def call_python(request): #, DEBUG=False
+    # if DEBUG:
+    #     data = request
+    # else:
+    #     data = request.get_json()
 
-        if not data or "code" not in data or "inputs" not in data:
-            return jsonify({"error": "Invalid input format. 'code' and 'inputs' are required."}), 400
+    data = request.get_json()
+    code = data["code"]
 
-        user_code = data["code"]
-        inputs = data["inputs"]
-        email = data["email"]
 
-        # Execute the code
-        exec_globals = {}
-        # exec(user_code, exec_globals)
-        #
-        # # Identify the function name
-        # func_name = [name for name in exec_globals if callable(exec_globals[name])][-1]
-        # func = exec_globals[func_name]
-        #
-        # # Call the function with inputs
-        # result = func(*inputs)
-        result={}
+    inputs = data.get("inputs", None)
 
-        return jsonify({"status": "success", "output": result}), 200
+    # Execute the code
+    exec_globals = {}
+    exec(code, exec_globals)
+    #
+    # # Identify the function name
+    func_name = [name for name in exec_globals if callable(exec_globals[name])][-1]
+    func = exec_globals[func_name]
+    #
+    # # Call the function with inputs
+    if inputs:
+        result = func(*inputs)
+    else:
+        result = func()
 
-    except Exception as e:
-        return jsonify({"status": "error", "error": str(e)}), 500
+    return jsonify({"status": "success", "output": result}), 200
+
