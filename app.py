@@ -60,7 +60,8 @@ def login():
 def callback():
     """Handle the OAuth callback and validate the user."""
     print("test")
-    # print(request.url)
+    print(f"Callback hit: {request.url}")
+    print(f"Query Parameters: {request.args}")
     # flow.fetch_token(authorization_response=request.url)
     return jsonify({"message": f"Welcome"})
     #
