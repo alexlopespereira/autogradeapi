@@ -44,11 +44,7 @@ flow = Flow.from_client_config(
     redirect_uri="https://seal-app-pmncf.ondigitalocean.app/callback"
 )
 test_cases_url = os.environ.get("TEST_CASES_URL")
-response = requests.get(test_cases_url)
-response.raise_for_status()  # Raise HTTPError for bad responses (4XX, 5XX)
 
-# Parse the JSON response
-test_cases = response.json()
 
 FORBIDDEN_KEYWORDS = ["import", "open", "eval", "exec", "os", "sys", "subprocess"]
 
@@ -158,6 +154,12 @@ async def validate_student_code():
     is_safe, error_message = analyze_code_safety(generated_code)
     if not is_safe:
         return jsonify({"error": f"Unsafe code: {error_message}"}), 400
+
+    response = requests.get(test_cases_url)
+    response.raise_for_status()  # Raise HTTPError for bad responses (4XX, 5XX)
+
+    # Parse the JSON response
+    test_cases = response.json()
 
     relevant_test_cases = [tc for tc in test_cases if tc["function_id"] == function_id]
     if not relevant_test_cases:
