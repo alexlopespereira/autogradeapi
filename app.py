@@ -59,20 +59,22 @@ def login():
 @app.route("/callback")
 def callback():
     """Handle the OAuth callback and validate the user."""
-    flow.fetch_token(authorization_response=request.url)
-
-    # Verify the ID token
-    credentials = flow.credentials
-    id_token = credentials.id_token
-    info = verify_oauth2_token(id_token, Request())
-
-    # Extract email and validate against authorized users
-    email = info.get("email")
-    if email in AUTHORIZED_USERS:
-        session["user_email"] = email
-        return jsonify({"message": f"Welcome, {email}!"})
-    else:
-        return jsonify({"error": "Unauthorized user"}), 403
+    print("test")
+    return jsonify({"message": f"Welcome"})
+    # flow.fetch_token(authorization_response=request.url)
+    #
+    # # Verify the ID token
+    # credentials = flow.credentials
+    # id_token = credentials.id_token
+    # info = verify_oauth2_token(id_token, Request())
+    #
+    # # Extract email and validate against authorized users
+    # email = info.get("email")
+    # if email in AUTHORIZED_USERS:
+    #     session["user_email"] = email
+    #     return jsonify({"message": f"Welcome, {email}!"})
+    # else:
+    #     return jsonify({"error": "Unauthorized user"}), 403
 
 def google_cloud_function_mockup(payload):
     from main import call_python
