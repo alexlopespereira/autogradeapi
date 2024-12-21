@@ -87,13 +87,17 @@ async def execute_test_case(session, cloud_function_url, headers, generated_code
             headers=headers
     ) as cloud_response:
         if cloud_response.status != 200:
+            if cloud_response.status == 500:
+                error = cloud_response.get_json()["error"]
+            else:
+                error = await cloud_response.text()
             return {
                 "testcase_id": test_case["testcase_id"],
                 "input": test_case["input"],
                 "expected": test_case["expected"],
                 "actual": None,
                 "passed": False,
-                "error": f"Error from cloud function: {await cloud_response.text()}"
+                "error": f"Error from cloud function: {error}"
             }
         cloud_result = await cloud_response.json()
 

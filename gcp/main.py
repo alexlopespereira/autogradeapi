@@ -24,11 +24,20 @@ def call_python(request): #, DEBUG=False): #
     #
     # # Call the function with inputs
     if inputs:
-        result = func(*inputs)
+        try:
+            result = func(*inputs)  # Attempt to execute the function with inputs
+            return jsonify({"status": "success", "output": result}), 200
+        except Exception as e:
+            # Handle the exception and return a JSON response with an HTTP error code
+            return jsonify({
+                "output": "error",
+                "status": "error",
+                "message": "An error occurred while executing the function.",
+                "error": str(e)
+            }), 500
     else:
         result = func()
-
-    return jsonify({"status": "success", "output": result}), 200
+        return jsonify({"status": "success", "output": result}), 200
 
 if __name__ == '__main__':
     test_case = {"input": 5, "expected": {"1": 1, "2": 4, "3": 9, "4": 16, "5": 25}, "function_id": "A2-E1", "testcase_id": "1"}
