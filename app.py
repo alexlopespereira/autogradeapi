@@ -201,10 +201,17 @@ async def validate_student_code():
         return jsonify({"error": "No test cases found for this function_id"}), 404
 
 
-    cloud_function_url = os.environ.get("GCP_FUNC_URL")
-    credentials = service_account.IDTokenCredentials.from_service_account_file(
-        './key.json', target_audience=cloud_function_url
+    cloud_function_url = os.environ.get("GCP_FUNC_URL") #from_service_account_info
+    service_account_info = json.loads(os.getenv("SERVICE_ACCOUNT_JSON"))
+
+    # Create credentials using from_service_account_info
+    credentials = service_account.IDTokenCredentials.from_service_account_info(
+        service_account_info,
+        target_audience=cloud_function_url
     )
+    # credentials = service_account.IDTokenCredentials.from_service_account_file(
+    #     './key.json', target_audience=cloud_function_url
+    # )
     request_adapter = Request()
     credentials.refresh(request_adapter)
     headers = {
