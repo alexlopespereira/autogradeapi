@@ -34,7 +34,7 @@ DEBUG = os.environ.get("DEBUG", None) == "True"
 
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"  # For local testing, disable HTTPS requirement
 # CLIENT_SECRETS_FILE = "client_secret_oauth.json"  # Downloaded JSON file from Google Console
-credentials = json.loads(os.environ.get('GOOGLE_CREDENTIALS')
+credentials = json.loads(os.environ.get('GOOGLE_CREDENTIALS'))
 AUTHORIZED_USERS = {"alexlopespereira@gmail.com", "alex.pereira.tablet@gmail.com"}
 flow = Flow.from_client_config(
     credentials,
