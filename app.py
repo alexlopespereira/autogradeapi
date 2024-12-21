@@ -62,21 +62,20 @@ def callback():
     print("test")
     print(f"Callback hit: {request.url}")
     print(f"Query Parameters: {request.args}")
-    # flow.fetch_token(authorization_response=request.url)
-    return jsonify({"message": f"Welcome"})
-    #
-    # # Verify the ID token
-    # credentials = flow.credentials
-    # id_token = credentials.id_token
-    # info = verify_oauth2_token(id_token, Request())
-    #
-    # # Extract email and validate against authorized users
-    # email = info.get("email")
-    # if email in AUTHORIZED_USERS:
-    #     session["user_email"] = email
-    #     return jsonify({"message": f"Welcome, {email}!"})
-    # else:
-    #     return jsonify({"error": "Unauthorized user"}), 403
+    flow.fetch_token(authorization_response=request.url)
+
+    # Verify the ID token
+    credentials = flow.credentials
+    id_token = credentials.id_token
+    info = verify_oauth2_token(id_token, Request())
+
+    # Extract email and validate against authorized users
+    email = info.get("email")
+    if email in AUTHORIZED_USERS:
+        session["user_email"] = email
+        return jsonify({"message": f"Welcome, {email}!"})
+    else:
+        return jsonify({"error": "Unauthorized user"}), 403
 
 def google_cloud_function_mockup(payload):
     from main import call_python
