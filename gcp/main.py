@@ -28,6 +28,7 @@ def call_python(request): #, DEBUG=False): #
             result = func(*inputs)  # Attempt to execute the function with inputs
             return jsonify({"status": "success", "output": result}), 200
         except Exception as e:
+            print(str(e))
             # Handle the exception and return a JSON response with an HTTP error code
             return jsonify({
                 "output": "error",
