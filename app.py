@@ -31,7 +31,7 @@ class UTF8JSONProvider(JSONProvider):
 app = Flask(__name__)
 app.json_provider_class = UTF8JSONProvider
 app.json = UTF8JSONProvider(app)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY")
+app.secret_key = os.environ.get("SECRET_KEY")
 DEBUG = os.environ.get("DEBUG", None) == "True"
 
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"  # For local testing, disable HTTPS requirement
