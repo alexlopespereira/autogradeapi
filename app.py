@@ -151,7 +151,8 @@ async def execute_test_case(session, cloud_function_url, headers, generated_code
 async def validate_student_code():
     from flask import session
     if "user_email" not in session:
-        return redirect(url_for("login"))
+        print("'user_email' not in session")
+        return jsonify({"error": "Unauthorized access. Please login."}), 403
     try:
         data = request.get_json()
         if not data or "prompt" not in data or "function_id" not in data or "user_email" not in data:
