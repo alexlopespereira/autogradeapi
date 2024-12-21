@@ -174,7 +174,7 @@ async def validate_student_code():
         # Check if the user is authorized
         if email in AUTHORIZED_USERS:
             session["user_email"] = email
-            # return jsonify({"message": f"Welcome, {email}!"})
+            print(f'Welcome, {email}!')
         else:
             return jsonify({"error": "Unauthorized user"}), 403
 
