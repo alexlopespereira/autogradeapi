@@ -1,6 +1,8 @@
 import json
 import os
 import re
+
+import requests
 from flask import Flask, request, jsonify, redirect, session, url_for
 import ast
 from openai import OpenAI
@@ -159,8 +161,12 @@ async def validate_student_code():
 
     try:
         # Verify the token with Google's public keys
-        info = verify_oauth2_token(token, Request())
-        email = info.get("email")
+        response = requests.get(f"https://oauth2.googleapis.com/tokeninfo?access_token={token}")
+        if response.status_code != 200:
+            return jsonify({"error": "Invalid token"}), 403
+
+        token_info = response.json()
+        email = token_info.get("email")
 
         if not email:
             return jsonify({"error": "Email not found in token"}), 403
