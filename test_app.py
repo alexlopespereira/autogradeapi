@@ -1,7 +1,7 @@
 import requests
 from requests.sessions import Session
 
-BASE_URL = "http://127.0.0.1:5000"
+BASE_URL = "https://seal-app-pmncf.ondigitalocean.app/"
 
 def test_login_and_validate():
     # Step 1: Start a session to maintain cookies

@@ -33,10 +33,11 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY")
 DEBUG = os.environ.get("DEBUG", None) == "True"
 
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"  # For local testing, disable HTTPS requirement
-CLIENT_SECRETS_FILE = "client_secret_oauth.json"  # Downloaded JSON file from Google Console
+# CLIENT_SECRETS_FILE = "client_secret_oauth.json"  # Downloaded JSON file from Google Console
+credentials = json.loads(os.environ.get('GOOGLE_CREDENTIALS').replace("'",'"'))
 AUTHORIZED_USERS = {"alexlopespereira@gmail.com", "alex.pereira.tablet@gmail.com"}
-flow = Flow.from_client_secrets_file(
-    CLIENT_SECRETS_FILE,
+flow = Flow.from_client_config(
+    credentials,
     scopes=["https://www.googleapis.com/auth/userinfo.email"],
     redirect_uri="https://seal-app-pmncf.ondigitalocean.app/"
 )
