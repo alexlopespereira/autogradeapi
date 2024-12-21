@@ -182,60 +182,60 @@ async def validate_student_code():
         print(f"Token validation error: {e}")
         return jsonify({"error": "Invalid token"}), 403
 
-    try:
-        data = request.get_json()
-        if not data or "prompt" not in data or "function_id" not in data or "user_email" not in data:
-            return jsonify({"error": "Invalid request format"}), 400
+    # try:
+    data = request.get_json()
+    if not data or "prompt" not in data or "function_id" not in data or "user_email" not in data:
+        return jsonify({"error": "Invalid request format"}), 400
 
-        user_prompt = data["prompt"]
-        function_id = data["function_id"]
-        user_email = data["user_email"]
+    user_prompt = data["prompt"]
+    function_id = data["function_id"]
+    user_email = data["user_email"]
 
-        generated_code = prompt_completion(user_prompt)
-        is_safe, error_message = analyze_code_safety(generated_code)
-        if not is_safe:
-            return jsonify({"error": f"Unsafe code: {error_message}"}), 400
+    generated_code = prompt_completion(user_prompt)
+    is_safe, error_message = analyze_code_safety(generated_code)
+    if not is_safe:
+        return jsonify({"error": f"Unsafe code: {error_message}"}), 400
 
-        relevant_test_cases = [tc for tc in test_cases if tc["function_id"] == function_id]
-        if not relevant_test_cases:
-            return jsonify({"error": "No test cases found for this function_id"}), 404
+    relevant_test_cases = [tc for tc in test_cases if tc["function_id"] == function_id]
+    if not relevant_test_cases:
+        return jsonify({"error": "No test cases found for this function_id"}), 404
 
 
-        cloud_function_url = os.environ.get("GCP_FUNC_URL")
-        credentials = service_account.IDTokenCredentials.from_service_account_file(
-            './key.json', target_audience=cloud_function_url
-        )
-        request_adapter = Request()
-        credentials.refresh(request_adapter)
-        headers = {
-            'Authorization': f'Bearer {credentials.token}',
-            'Content-Type': 'application/json'
-        }
+    cloud_function_url = os.environ.get("GCP_FUNC_URL")
+    credentials = service_account.IDTokenCredentials.from_service_account_file(
+        './key.json', target_audience=cloud_function_url
+    )
+    request_adapter = Request()
+    credentials.refresh(request_adapter)
+    headers = {
+        'Authorization': f'Bearer {credentials.token}',
+        'Content-Type': 'application/json'
+    }
 
-        test_results = []
-        async with aiohttp.ClientSession() as session:
-            tasks = [
-                execute_test_case(session, cloud_function_url, headers, generated_code, test_case)
-                for test_case in relevant_test_cases
-            ]
-            test_results = await asyncio.gather(*tasks)
+    test_results = []
+    async with aiohttp.ClientSession() as session:
+        tasks = [
+            execute_test_case(session, cloud_function_url, headers, generated_code, test_case)
+            for test_case in relevant_test_cases
+        ]
+        test_results = await asyncio.gather(*tasks)
 
-        passed_count = sum(1 for result in test_results if result["passed"])
+    passed_count = sum(1 for result in test_results if result["passed"])
 
-        result = {
-            "function_id": function_id,
-            "user_email": user_email,
-            "code": generated_code,
-            "test_results": test_results,
-            "total_tests": len(test_results),
-            "passed_tests": passed_count,
-            "success_rate": passed_count / len(test_results) if test_results else 0
-        }
+    result = {
+        "function_id": function_id,
+        "user_email": user_email,
+        "code": generated_code,
+        "test_results": test_results,
+        "total_tests": len(test_results),
+        "passed_tests": passed_count,
+        "success_rate": passed_count / len(test_results) if test_results else 0
+    }
 
-        return jsonify(result)
+    return jsonify(result)
 
-    except Exception as e:
-        return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
+    # except Exception as e:
+    #     return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
 
 
 if __name__ == '__main__':
