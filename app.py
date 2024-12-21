@@ -50,32 +50,32 @@ test_cases = [
 
 FORBIDDEN_KEYWORDS = ["import", "open", "eval", "exec", "os", "sys", "subprocess"]
 
-@app.route("/login")
-def login():
-    """Redirect the user to the Google OAuth login page."""
-    authorization_url, _ = flow.authorization_url()
-    return redirect(authorization_url)
-
-@app.route("/callback")
-def callback():
-    """Handle the OAuth callback and validate the user."""
-    print("test")
-    print(f"Callback hit: {request.url}")
-    print(f"Query Parameters: {request.args}")
-    flow.fetch_token(authorization_response=request.url)
-
-    # Verify the ID token
-    credentials = flow.credentials
-    id_token = credentials.id_token
-    info = verify_oauth2_token(id_token, Request())
-
-    # Extract email and validate against authorized users
-    email = info.get("email")
-    if email in AUTHORIZED_USERS:
-        session["user_email"] = email
-        return jsonify({"message": f"Welcome, {email}!"})
-    else:
-        return jsonify({"error": "Unauthorized user"}), 403
+# @app.route("/login")
+# def login():
+#     """Redirect the user to the Google OAuth login page."""
+#     authorization_url, _ = flow.authorization_url()
+#     return redirect(authorization_url)
+#
+# @app.route("/callback")
+# def callback():
+#     """Handle the OAuth callback and validate the user."""
+#     print("test")
+#     print(f"Callback hit: {request.url}")
+#     print(f"Query Parameters: {request.args}")
+#     flow.fetch_token(authorization_response=request.url)
+#
+#     # Verify the ID token
+#     credentials = flow.credentials
+#     id_token = credentials.id_token
+#     info = verify_oauth2_token(id_token, Request())
+#
+#     # Extract email and validate against authorized users
+#     email = info.get("email")
+#     if email in AUTHORIZED_USERS:
+#         session["user_email"] = email
+#         return jsonify({"message": f"Welcome, {email}!"})
+#     else:
+#         return jsonify({"error": "Unauthorized user"}), 403
 
 def google_cloud_function_mockup(payload):
     from main import call_python
@@ -150,9 +150,32 @@ async def execute_test_case(session, cloud_function_url, headers, generated_code
 @app.route('/api/validate', methods=['POST'])
 async def validate_student_code():
     from flask import session
-    if "user_email" not in session:
-        print("'user_email' not in session")
-        return jsonify({"error": "Unauthorized access. Please login."}), 403
+
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Missing or invalid Authorization header"}), 401
+
+    token = auth_header.split("Bearer ")[1]
+
+    try:
+        # Verify the token with Google's public keys
+        info = verify_oauth2_token(token, Request())
+        email = info.get("email")
+
+        if not email:
+            return jsonify({"error": "Email not found in token"}), 403
+
+        # Check if the user is authorized
+        if email in AUTHORIZED_USERS:
+            session["user_email"] = email
+            # return jsonify({"message": f"Welcome, {email}!"})
+        else:
+            return jsonify({"error": "Unauthorized user"}), 403
+
+    except Exception as e:
+        print(f"Token validation error: {e}")
+        return jsonify({"error": "Invalid token"}), 403
+
     try:
         data = request.get_json()
         if not data or "prompt" not in data or "function_id" not in data or "user_email" not in data:
