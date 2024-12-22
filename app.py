@@ -33,7 +33,7 @@ app.json_provider_class = UTF8JSONProvider
 app.json = UTF8JSONProvider(app)
 app.secret_key = os.environ.get("SECRET_KEY")
 DEBUG = os.environ.get("DEBUG", None) == "True"
-
+OPENAI_GPT_MODEL = os.environ.get("OPENAI_GPT_MODEL")
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"  # For local testing, disable HTTPS requirement
 # CLIENT_SECRETS_FILE = "client_secret_oauth.json"  # Downloaded JSON file from Google Console
 credentials = json.loads(os.environ.get('GOOGLE_CREDENTIALS'))
@@ -52,7 +52,7 @@ FORBIDDEN_KEYWORDS = ["import", "open", "eval", "exec", "os", "sys", "subprocess
 def prompt_completion(user_prompt):
     client = OpenAI()
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=OPENAI_GPT_MODEL,
         messages=[
             {"role": "system", "content": "You are a helpful assistant that generates Python functions."},
             {"role": "user",
