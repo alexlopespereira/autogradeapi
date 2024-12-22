@@ -218,7 +218,7 @@ async def validate_student_code():
 
 
 if __name__ == '__main__':
-    # app.run(debug=True)
-    prompt_completion("""Escreva uma função Python para gerar um dicionário que contenha pares (chave e valor) de números. A chave deve variar de 1 a n, e os valores sejam o valor da chave elevado ao quadrado.
-Exemplo: Para n = 5
-Resultado Esperado: {"1": 1, "2": 4, "3": 9, "4": 16, "5": 25}""")
+    app.run(debug=True)
+#     prompt_completion("""Escreva uma função Python para gerar um dicionário que contenha pares (chave e valor) de números. A chave deve variar de 1 a n, e os valores sejam o valor da chave elevado ao quadrado.
+# Exemplo: Para n = 5
+# Resultado Esperado: {"1": 1, "2": 4, "3": 9, "4": 16, "5": 25}""")
