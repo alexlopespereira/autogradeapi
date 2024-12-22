@@ -62,6 +62,7 @@ def prompt_completion(user_prompt):
     )
     generated_code = response.choices[0].message.content.strip().replace("```","")
     generated_code = re.sub(r"^python\s*", "", generated_code)
+    print(generated_code)
     return generated_code
 
 
