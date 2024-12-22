@@ -58,7 +58,7 @@ def prompt_completion(user_prompt):
             {"role": "user",
              "content": f"You are a helpful assistant that generates Python functions. In your answer return only the python code, and no text before neither after the code. Write a Python function for the following prompt:\n{user_prompt}"}
         ],
-        max_tokens=150
+        max_completion_tokens=150
     )
     generated_code = response.choices[0].message.content.strip().replace("```","")
     generated_code = re.sub(r"^python\s*", "", generated_code)
