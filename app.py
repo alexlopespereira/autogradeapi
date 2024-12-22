@@ -54,9 +54,9 @@ def prompt_completion(user_prompt):
     response = client.chat.completions.create(
         model=OPENAI_GPT_MODEL,
         messages=[
-            {"role": "system", "content": "You are a helpful assistant that generates Python functions."},
+            #{"role": "system", "content": "You are a helpful assistant that generates Python functions."},
             {"role": "user",
-             "content": f"In your answer return only the python code, and no text before neither after the code. Write a Python function for the following prompt:\n{user_prompt}"}
+             "content": f"You are a helpful assistant that generates Python functions. In your answer return only the python code, and no text before neither after the code. Write a Python function for the following prompt:\n{user_prompt}"}
         ],
         max_tokens=150
     )
