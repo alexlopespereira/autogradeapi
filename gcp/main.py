@@ -10,7 +10,7 @@ def call_python(request): #, DEBUG=False): #
 
     data = request.get_json()
     code = data["code"]
-
+    print(code)
 
     inputs = data.get("inputs", None)
 

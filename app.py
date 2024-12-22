@@ -54,9 +54,9 @@ def prompt_completion(user_prompt):
     response = client.chat.completions.create(
         model=OPENAI_GPT_MODEL,
         messages=[
-            #{"role": "system", "content": "You are a helpful assistant that generates Python functions."},
+            {"role": "developer", "content": "You are a helpful assistant that generates Python functions."},
             {"role": "user",
-             "content": f"You are a helpful assistant that generates Python functions. In your answer return only the python code, and no text before neither after the code. Write a Python function for the following prompt:\n{user_prompt}"}
+             "content": f"In your answer return only the python code, and no text before neither after the code. Write a Python function for the following prompt:\n{user_prompt}"}
         ],
         max_completion_tokens=150
     )
@@ -217,3 +217,6 @@ async def validate_student_code():
 
 if __name__ == '__main__':
     app.run(debug=True)
+#     prompt_completion("""Escreva uma função Python para gerar um dicionário que contenha pares (chave e valor) de números. A chave deve variar de 1 a n, e os valores sejam o valor da chave elevado ao quadrado.
+# Exemplo: Para n = 5
+# Resultado Esperado: {"1": 1, "2": 4, "3": 9, "4": 16, "5": 25}""")
