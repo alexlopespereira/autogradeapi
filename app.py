@@ -11,7 +11,6 @@ import aiohttp
 import asyncio
 from google.oauth2 import service_account
 from google.auth.transport.requests import Request
-from google.oauth2.id_token import verify_oauth2_token
 from google_auth_oauthlib.flow import Flow
 
 class UTF8JSONProvider(JSONProvider):
@@ -35,7 +34,6 @@ app.secret_key = os.environ.get("SECRET_KEY")
 DEBUG = os.environ.get("DEBUG", None) == "True"
 OPENAI_GPT_MODEL = os.environ.get("OPENAI_GPT_MODEL")
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"  # For local testing, disable HTTPS requirement
-# CLIENT_SECRETS_FILE = "client_secret_oauth.json"  # Downloaded JSON file from Google Console
 credentials = json.loads(os.environ.get('GOOGLE_CREDENTIALS'))
 AUTHORIZED_USERS = {"alexlopespereira@gmail.com", "alex.pereira.tablet@gmail.com"}
 flow = Flow.from_client_config(
@@ -55,7 +53,7 @@ def prompt_completion(user_prompt):
         model=OPENAI_GPT_MODEL,
         messages=[
             {"role": "user",
-             "content": f"In your answer return only the python code, and no text before neither after the code. Write a Python function for the following prompt:\n{user_prompt}"}
+             "content": f"In your answer return only the python code, and no text before neither after the code. Do not produce code for importing packages, all the allowed packages are already imported. Write a Python function for the following prompt:\n{user_prompt}"}
         ],
         max_completion_tokens=1500
     )
