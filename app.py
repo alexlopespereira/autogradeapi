@@ -55,7 +55,7 @@ def prompt_completion(user_prompt):
             {"role": "user",
              "content": f"In your answer return only the python code, and no text before neither after the code. Do not produce code for importing packages, all the allowed packages are already imported. Write a Python function for the following prompt:\n{user_prompt}"}
         ],
-        max_completion_tokens=1500
+        max_completion_tokens=2000
     )
     generated_code = response.choices[0].message.content.strip().replace("```","")
     if generated_code == "":
