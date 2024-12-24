@@ -26,6 +26,35 @@ class UTF8JSONProvider(JSONProvider):
         except UnicodeDecodeError:
             return json.loads(s.decode('latin-1'), **kwargs)
 
+users_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/users.json"
+courses_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/courses.json"
+
+# Fetch the JSON data from URLs
+def fetch_json(url):
+    response = requests.get(url)
+    response.raise_for_status()  # Raise an error for HTTP issues
+    return response.json()
+
+try:
+    # Load users and courses data
+    users_data = fetch_json(users_url)
+    courses_data = fetch_json(courses_url)
+
+    # Extract authorized users for valid courses
+    valid_courses = courses_data.get("courses", [])
+    authorized_users = set()
+
+    for course in valid_courses:
+        authorized_users.update(users_data.get(course, []))
+
+    # Replace AUTHORIZED_USERS with the computed set
+    AUTHORIZED_USERS = authorized_users
+
+    print("AUTHORIZED_USERS updated successfully:")
+    print(AUTHORIZED_USERS)
+
+except Exception as e:
+    print(f"An error occurred: {e}")
 
 app = Flask(__name__)
 app.json_provider_class = UTF8JSONProvider
@@ -35,7 +64,6 @@ DEBUG = os.environ.get("DEBUG", None) == "True"
 OPENAI_GPT_MODEL = os.environ.get("OPENAI_GPT_MODEL")
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"  # For local testing, disable HTTPS requirement
 credentials = json.loads(os.environ.get('GOOGLE_CREDENTIALS'))
-AUTHORIZED_USERS = {"alexlopespereira@gmail.com", "alex.pereira.tablet@gmail.com"}
 flow = Flow.from_client_config(
     credentials,
     scopes=["https://www.googleapis.com/auth/userinfo.email"],
