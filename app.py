@@ -12,6 +12,8 @@ import asyncio
 from google.oauth2 import service_account
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import Flow
+import numpy as np
+import pandas as pd
 
 class UTF8JSONProvider(JSONProvider):
     def dumps(self, obj, **kwargs):
@@ -25,6 +27,24 @@ class UTF8JSONProvider(JSONProvider):
             return json.loads(s, **kwargs)
         except UnicodeDecodeError:
             return json.loads(s.decode('latin-1'), **kwargs)
+
+def prompt_completion(user_prompt):
+    client = OpenAI()
+    response = client.chat.completions.create(
+        model=OPENAI_GPT_MODEL,
+        messages=[
+            {"role": "user",
+             "content": f"In your answer return only the python code, and no text before neither after the code. Do not produce code for importing packages, all the allowed packages are already imported. Write a Python function for the following prompt:\n{user_prompt}"}
+        ],
+        max_completion_tokens=1500
+    )
+    generated_code = response.choices[0].message.content.strip().replace("```","")
+    if generated_code == "":
+        print("empty code")
+        raise Exception("The generated code is empty. You probably sent a too large prompt")
+    generated_code = re.sub(r"^python\s*", "", generated_code)
+    print(generated_code)
+    return generated_code
 
 users_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/users.json"
 courses_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/courses.json"
@@ -71,28 +91,27 @@ flow = Flow.from_client_config(
 )
 test_cases_url = os.environ.get("TEST_CASES_URL")
 
-
 FORBIDDEN_KEYWORDS = ["import", "open", "eval", "exec", "os", "sys", "subprocess"]
 
+def validate_type(value, expected_type):
+    """
+    Validate the type of a value against an expected type.
+    """
+    type_mapping = {
+        "str": str,
+        "int": int,
+        "float": float,
+        "list": list,
+        "dict": dict,
+        "np.array": np.ndarray,
+        "pd.dataframe": pd.DataFrame,
+        "pd.series": pd.Series
+    }
 
-def prompt_completion(user_prompt):
-    client = OpenAI()
-    response = client.chat.completions.create(
-        model=OPENAI_GPT_MODEL,
-        messages=[
-            {"role": "user",
-             "content": f"In your answer return only the python code, and no text before neither after the code. Do not produce code for importing packages, all the allowed packages are already imported. Write a Python function for the following prompt:\n{user_prompt}"}
-        ],
-        max_completion_tokens=1500
-    )
-    generated_code = response.choices[0].message.content.strip().replace("```","")
-    if generated_code == "":
-        print("empty code")
-        raise Exception("The generated code is empty. You probably sent a too large prompt")
-    generated_code = re.sub(r"^python\s*", "", generated_code)
-    print(generated_code)
-    return generated_code
+    if expected_type not in type_mapping:
+        raise ValueError(f"Unsupported type: {expected_type}")
 
+    return isinstance(value, type_mapping[expected_type])
 
 def analyze_code_safety(code):
     try:
@@ -110,40 +129,73 @@ def analyze_code_safety(code):
             pass
         return False, f"Syntax error in code: {e}"
 
-
 async def execute_test_case(session, cloud_function_url, headers, generated_code, test_case):
-    async with session.post(
-            cloud_function_url,
-            json={"code": generated_code, "inputs": test_case["input"]},
-            headers=headers
-    ) as cloud_response:
-        if cloud_response.status != 200:
-            if cloud_response.status == 500:
-                error_json = await cloud_response.json()
-                error = error_json["error"]
-                print(f"error: {error}")
-            else:
-                error = await cloud_response.text()
+    try:
+        # Validate input types
+        for idx, (value, expected_type) in enumerate(zip(test_case["input"], test_case["input_type"].values())):
+            if not validate_type(value, expected_type):
+                return {
+                    "testcase_id": test_case["testcase_id"],
+                    "input": test_case["input"],
+                    "expected": test_case["expected"],
+                    "actual": None,
+                    "passed": False,
+                    "error": f"Input type mismatch at index {idx + 1}. Expected {expected_type}."
+                }
+
+        async with session.post(
+                cloud_function_url,
+                json={"code": generated_code, "inputs": test_case["input"]},
+                headers=headers
+        ) as cloud_response:
+            if cloud_response.status != 200:
+                if cloud_response.status == 500:
+                    error_json = await cloud_response.json()
+                    error = error_json["error"]
+                    print(f"error: {error}")
+                else:
+                    error = await cloud_response.text()
+                return {
+                    "testcase_id": test_case["testcase_id"],
+                    "input": test_case["input"],
+                    "expected": test_case["expected"],
+                    "actual": None,
+                    "passed": False,
+                    "error": f"Error from cloud function: {error}"
+                }
+            cloud_result = await cloud_response.json()
+
+        actual_output = cloud_result.get("output")
+
+        # Validate output type
+        if not validate_type(actual_output, test_case["output_type"]):
             return {
                 "testcase_id": test_case["testcase_id"],
                 "input": test_case["input"],
                 "expected": test_case["expected"],
-                "actual": None,
+                "actual": actual_output,
                 "passed": False,
-                "error": f"Error from cloud function: {error}"
+                "error": f"Output type mismatch. Expected {test_case['output_type']}."
             }
-        cloud_result = await cloud_response.json()
 
-    actual_output = cloud_result.get("output")
-    return {
-        "testcase_id": test_case["testcase_id"],
-        "input": test_case["input"],
-        "expected": test_case["expected"],
-        "actual": actual_output,
-        "passed": actual_output == test_case["expected"],
-        "error": cloud_result.get("error", "")
-    }
+        return {
+            "testcase_id": test_case["testcase_id"],
+            "input": test_case["input"],
+            "expected": test_case["expected"],
+            "actual": actual_output,
+            "passed": actual_output == test_case["expected"],
+            "error": cloud_result.get("error", "")
+        }
 
+    except Exception as e:
+        return {
+            "testcase_id": test_case["testcase_id"],
+            "input": test_case["input"],
+            "expected": test_case["expected"],
+            "actual": None,
+            "passed": False,
+            "error": str(e)
+        }
 
 @app.route('/api/validate', methods=['POST'])
 async def validate_student_code():
@@ -178,7 +230,6 @@ async def validate_student_code():
         print(f"Token validation error: {e}")
         return jsonify({"error": "Invalid token"}), 403
 
-    # try:
     data = request.get_json()
     if not data or "prompt" not in data or "function_id" not in data or "user_email" not in data:
         return jsonify({"error": "Invalid request format"}), 400
@@ -202,8 +253,7 @@ async def validate_student_code():
     if not relevant_test_cases:
         return jsonify({"error": "No test cases found for this function_id"}), 404
 
-
-    cloud_function_url = os.environ.get("GCP_FUNC_URL") #from_service_account_info
+    cloud_function_url = os.environ.get("GCP_FUNC_URL")
     service_account_info = json.loads(os.getenv("SERVICE_ACCOUNT_JSON"))
 
     # Create credentials using from_service_account_info
@@ -241,12 +291,5 @@ async def validate_student_code():
 
     return jsonify(result)
 
-    # except Exception as e:
-    #     return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
-
-
 if __name__ == '__main__':
     app.run(debug=True)
-#     prompt_completion("""Escreva uma função Python para gerar um dicionário que contenha pares (chave e valor) de números. A chave deve variar de 1 a n, e os valores sejam o valor da chave elevado ao quadrado.
-# Exemplo: Para n = 5
-# Resultado Esperado: {"1": 1, "2": 4, "3": 9, "4": 16, "5": 25}""")
