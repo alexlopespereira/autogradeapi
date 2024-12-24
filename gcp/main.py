@@ -3,6 +3,7 @@ from flask import jsonify
 def call_python(request):
     data = request.get_json()
     code = f"""import pandas as pd
+import numpy as np
 import requests
 from collections import defaultdict
 {data["code"]}"""
