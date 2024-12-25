@@ -158,6 +158,7 @@ async def validate_requirements_with_openai(generated_code, requirements):
     except json.JSONDecodeError as e:
         satisfied, unsatisfied = [], requirements
         print(f"json.JSONDecodeError, Failed to parse OpenAI API response for requirements validation. e={str(e)}")
+        print(response_content)
     except KeyError as e:
         satisfied, unsatisfied = [], requirements
         print(f"KeyError, Failed to parse OpenAI API response for requirements validation. e={str(e)}")
