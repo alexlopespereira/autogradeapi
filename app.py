@@ -155,7 +155,13 @@ async def validate_requirements_with_openai(generated_code, requirements):
         requirement_results = json.loads(response_content)
         satisfied = [requirements[i] for i in requirement_results.get("satisfied", [])]
         unsatisfied = [requirements[i] for i in requirement_results.get("unsatisfied", [])]
-    except (json.JSONDecodeError, KeyError, IndexError):
+    except json.JSONDecodeError as e:
+        satisfied, unsatisfied = [], requirements
+        print(f"Failed to parse OpenAI API response for requirements validation. e={str(e)}")
+    except KeyError as e:
+        satisfied, unsatisfied = [], requirements
+        print(f"Failed to parse OpenAI API response for requirements validation. e={str(e)}")
+    except IndexError as e:
         satisfied, unsatisfied = [], requirements
         print(f"Failed to parse OpenAI API response for requirements validation. e={str(e)}")
     return satisfied, unsatisfied
