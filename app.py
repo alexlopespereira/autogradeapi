@@ -113,6 +113,7 @@ def prompt_completion(user_prompt):
     )
     generated_code = response.choices[0].message.content.strip().replace("```", "")
     if not generated_code:
+        print("prompt completion with o1-mini failed, retrying with gpt-4o-mini")
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{
