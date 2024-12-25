@@ -101,20 +101,30 @@ def analyze_code_safety(code):
             pass
         return False, f"Syntax error in code: {e}"
 
+
 def prompt_completion(user_prompt):
     client = OpenAI()
     response = client.chat.completions.create(
         model=OPENAI_GPT_MODEL,
-        messages=[
-            {"role": "user",
-             "content": f"In your answer return only the python code, and no text before neither after the code. Do not produce code for importing packages, all the allowed packages are already imported. Write a Python function for the following prompt:\n{user_prompt}"}
-        ],
-        max_completion_tokens=2500
+        messages=[{
+                "role": "user",
+                "content": f"In your answer return only the python code, and no text before neither after the code. Do not produce code for importing packages, all the allowed packages are already imported. Write a Python function for the following prompt:\n{user_prompt}"
+            }], max_completion_tokens=2500
     )
-    generated_code = response.choices[0].message.content.strip().replace("```","")
-    if generated_code == "":
-        print("empty code")
-        raise Exception("The generated code is empty. You probably sent a too large prompt")
+    generated_code = response.choices[0].message.content.strip().replace("```", "")
+    if not generated_code:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{
+                    "role": "user",
+                    "content": f"In your answer return only the python code, and no text before neither after the code. Do not produce code for importing packages, all the allowed packages are already imported. Write a Python function for the following prompt:\n{user_prompt}"
+                }],
+            max_completion_tokens=2500
+        )
+        generated_code = response.choices[0].message.content.strip().replace("```", "")
+        if not generated_code:
+            print("empty code")
+            raise Exception("The generated code is empty. You probably sent a too large prompt.")
     generated_code = re.sub(r"^python\s*", "", generated_code)
     print(generated_code)
     return generated_code
