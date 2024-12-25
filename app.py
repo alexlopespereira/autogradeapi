@@ -104,7 +104,7 @@ def analyze_code_safety(code):
 
 def prompt_completion(user_prompt):
     client = OpenAI()
-    content = f"In your answer return only the python code, and no text before neither after the code. Do not produce code for importing packages, all the allowed packages are already imported. If the returning result is of type int64 convert it to int before returning. Write a Python function for the following prompt:\n{user_prompt}"
+    content = f"In your answer return only the python code, and no text before neither after the code. Do not produce code for importing packages, all the allowed packages are already imported. Write a Python function for the following prompt:\n{user_prompt}"
     response = client.chat.completions.create(
         model=OPENAI_GPT_MODEL,
         messages=[{
