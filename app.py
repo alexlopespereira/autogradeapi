@@ -133,7 +133,7 @@ async def validate_requirements_with_openai(generated_code, requirements):
                 )
             }
         ],
-        max_tokens=500
+        max_completion_tokens=1000
     )
     response_content = openai_response.choices[0].message.content
     try:
