@@ -126,11 +126,14 @@ def prompt_completion(user_prompt):
             max_completion_tokens=2500
         )
         generated_code = response.choices[0].message.content.strip().replace("```", "")
+        print(f"gpt-4o-mini: {generated_code}")
         if not generated_code:
             print("empty code")
             raise Exception("The generated code is empty. You probably sent a too large prompt.")
+    else:
+        print(f"o1-mini: {generated_code}")
     generated_code = re.sub(r"^python\\s*", "", generated_code)
-    print(generated_code)
+
     return generated_code
 
 async def validate_requirements_with_openai(generated_code, requirements):
