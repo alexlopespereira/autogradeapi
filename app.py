@@ -194,6 +194,7 @@ async def execute_test_case(session, cloud_function_url, headers, generated_code
             cloud_result = await cloud_response.json()
 
         actual_output = cloud_result.get("output")
+        print(f"actual_output={actual_output}")
 
         if not validate_type(actual_output, test_case.get("output_type")):
             return {

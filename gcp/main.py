@@ -16,6 +16,7 @@ from collections import defaultdict
     if inputs:
         try:
             result = func(*inputs)  # Attempt to execute the function with inputs
+            print(f"Printing result: {result}")
             return jsonify({"status": "success", "output": result}), 200
         except Exception as e:
             print(str(e))
@@ -27,6 +28,7 @@ from collections import defaultdict
                 "error": str(e)
             }), 500
     else:
+        print(f"No args received. Executing function without args.")
         result = func()
         return jsonify({"status": "success", "output": result}), 200
 
