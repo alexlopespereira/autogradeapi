@@ -132,7 +132,7 @@ def prompt_completion(user_prompt):
             raise Exception("The generated code is empty. You probably sent a too large prompt.")
     else:
         print(f"o1-mini: {generated_code}")
-    generated_code = re.sub(r"^python\\s*", "", generated_code)
+    generated_code = re.sub(r"^python\s*", "", generated_code)
 
     return generated_code
 
