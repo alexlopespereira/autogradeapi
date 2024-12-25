@@ -106,7 +106,7 @@ def analyze_code_safety(code):
 
 def prompt_completion(user_prompt):
     client = OpenAI()
-    content = f"In your answer do not return in hypertext format, return only raw text the python code. Do not produce code for importing packages, all the allowed packages are already imported. Write a Python function for the following prompt:\n{user_prompt}"
+    content = f"In your answer do not return in hypertext format, return only raw text. Do not produce code for importing packages, all the allowed packages are already imported. Write a Python function for the following prompt:\n{user_prompt}"
     response = client.chat.completions.create(
         model=OPENAI_GPT_MODEL,
         messages=[{
@@ -129,7 +129,7 @@ def prompt_completion(user_prompt):
         if not generated_code:
             print("empty code")
             raise Exception("The generated code is empty. You probably sent a too large prompt.")
-    generated_code = re.sub(r"^python\n\\s*", "", generated_code)
+    generated_code = re.sub(r"^python\\s*", "", generated_code)
     print(generated_code)
     return generated_code
 
