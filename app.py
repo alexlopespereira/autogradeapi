@@ -104,7 +104,6 @@ def analyze_code_safety(code):
             pass
         return False, f"Syntax error in code: {e}"
 
-
 def prompt_completion(user_prompt):
     client = OpenAI()
     content = f"In your answer return only the python code, and no text before neither after the code. Do not produce code for importing packages, all the allowed packages are already imported. Write a Python function for the following prompt:\n{user_prompt}"
@@ -130,7 +129,7 @@ def prompt_completion(user_prompt):
         if not generated_code:
             print("empty code")
             raise Exception("The generated code is empty. You probably sent a too large prompt.")
-    generated_code = re.sub(r"^python\s*", "", generated_code)
+    generated_code = re.sub(r"^python\\s*", "", generated_code)
     print(generated_code)
     return generated_code
 
@@ -167,7 +166,7 @@ async def validate_requirements_with_openai(generated_code, requirements):
         print(f"IndexError, Failed to parse OpenAI API response for requirements validation. e={str(e)}")
     return satisfied, unsatisfied
 
-async def execute_test_case(session, cloud_function_url, headers, generated_code, test_case):
+async def execute_test_case(session, cloud_function_url, headers, generated_code, test_case, global_requirements):
     try:
         for idx, (value, expected_type) in enumerate(zip(test_case["input"], test_case.get("input_type", {}).values())):
             if not validate_type(value, expected_type):
@@ -216,11 +215,7 @@ async def execute_test_case(session, cloud_function_url, headers, generated_code
                 "error": f"Output type mismatch. Expected {test_case['output_type']}"
             }
 
-        requirements = test_case.get("requirements", [])
-        if requirements:
-            satisfied, unsatisfied = await validate_requirements_with_openai(generated_code, requirements)
-        else:
-            satisfied, unsatisfied = [], []
+        satisfied, unsatisfied = global_requirements
 
         return {
             "testcase_id": test_case["testcase_id"],
@@ -266,7 +261,7 @@ async def validate_student_code():
 
         if email in AUTHORIZED_USERS:
             session["user_email"] = email
-            print(f'Welcome, {email}!')
+            print(f'Welcome, {email} !')
         else:
             return jsonify({"error": "Unauthorized user"}), 403
 
@@ -311,10 +306,19 @@ async def validate_student_code():
         'Content-Type': 'application/json'
     }
 
+    all_requirements = set()
+    for tc in relevant_test_cases:
+        all_requirements.update(tc.get("requirements", []))
+
+    if all_requirements:
+        global_requirements = await validate_requirements_with_openai(generated_code, list(all_requirements))
+    else:
+        global_requirements = ([], [])
+
     test_results = []
     async with aiohttp.ClientSession() as session:
         tasks = [
-            execute_test_case(session, cloud_function_url, headers, generated_code, test_case)
+            execute_test_case(session, cloud_function_url, headers, generated_code, test_case, global_requirements)
             for test_case in relevant_test_cases
         ]
         test_results = await asyncio.gather(*tasks, return_exceptions=True)
