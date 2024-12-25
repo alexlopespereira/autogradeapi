@@ -32,7 +32,7 @@ from collections import defaultdict
         result = func()
         return jsonify({"status": "success", "output": result}), 200
 
-if __name__ == '__main__':
-    test_case = {"input": 5, "expected": {"1": 1, "2": 4, "3": 9, "4": 16, "5": 25}, "function_id": "A2-E1", "testcase_id": "1"}
-    result = call_python({"code": "def gerar_dicionario_quadrados(n):\\n    return {str(i): i**2 for i in range(1, n + 1)}".replace("\\n", "\n"), "inputs": 5}, DEBUG=True)
-    print(result)
+# if __name__ == '__main__':
+#     test_case = {"input": 5, "expected": {"1": 1, "2": 4, "3": 9, "4": 16, "5": 25}, "function_id": "A2-E1", "testcase_id": "1"}
+#     result = call_python({"code": "def gerar_dicionario_quadrados(n):\\n    return {str(i): i**2 for i in range(1, n + 1)}".replace("\\n", "\n"), "inputs": 5}, DEBUG=True)
+#     print(result)
