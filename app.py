@@ -72,6 +72,9 @@ test_cases_url = os.environ.get("TEST_CASES_URL")
 FORBIDDEN_KEYWORDS = ["import", "open", "eval", "exec", "os", "sys", "subprocess"]
 
 def validate_type(value, expected_type):
+    if expected_type is None:
+        return True
+
     type_mapping = {
         "str": str,
         "int": int,
@@ -196,7 +199,7 @@ async def execute_test_case(session, cloud_function_url, headers, generated_code
         actual_output = cloud_result.get("output")
         print(f"actual_output={actual_output}")
 
-        if not validate_type(actual_output, test_case.get("output_type")):
+        if not validate_type(actual_output, test_case.get("output_type", None)):
             return {
                 "testcase_id": test_case["testcase_id"],
                 "input": test_case["input"],
