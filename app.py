@@ -158,13 +158,13 @@ async def validate_requirements_with_openai(generated_code, requirements):
         unsatisfied = [requirements[i] for i in requirement_results.get("unsatisfied", [])]
     except json.JSONDecodeError as e:
         satisfied, unsatisfied = [], requirements
-        print(f"Failed to parse OpenAI API response for requirements validation. e={str(e)}")
+        print(f"json.JSONDecodeError, Failed to parse OpenAI API response for requirements validation. e={str(e)}")
     except KeyError as e:
         satisfied, unsatisfied = [], requirements
-        print(f"Failed to parse OpenAI API response for requirements validation. e={str(e)}")
+        print(f"KeyError, Failed to parse OpenAI API response for requirements validation. e={str(e)}")
     except IndexError as e:
         satisfied, unsatisfied = [], requirements
-        print(f"Failed to parse OpenAI API response for requirements validation. e={str(e)}")
+        print(f"IndexError, Failed to parse OpenAI API response for requirements validation. e={str(e)}")
     return satisfied, unsatisfied
 
 async def execute_test_case(session, cloud_function_url, headers, generated_code, test_case):
