@@ -135,17 +135,18 @@ def prompt_completion(user_prompt):
     return generated_code
 
 async def validate_requirements_with_openai(generated_code, requirements):
-    openai_response = OpenAI().chat.completions.create(
-        model=OPENAI_GPT_MODEL,
-        messages=[
-            {
-                "role": "user",
-                "content": (
+    content = (
                     f"Given the following requirements: {requirements},\n"
                     f"check if the provided code satisfies them:\n"
                     f"{generated_code}.\n"
                     f"respond a json with two keys 'satisfied' and 'unsatisfied', each of the pointing to a list of numbers corresponding to the requirement that was either satisfied or not."
                 )
+    openai_response = OpenAI().chat.completions.create(
+        model=OPENAI_GPT_MODEL,
+        messages=[
+            {
+                "role": "user",
+                "content": content
             }
         ],
         max_completion_tokens=1500
