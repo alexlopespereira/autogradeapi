@@ -28,46 +28,24 @@ class UTF8JSONProvider(JSONProvider):
         except UnicodeDecodeError:
             return json.loads(s.decode('latin-1'), **kwargs)
 
-def prompt_completion(user_prompt):
-    client = OpenAI()
-    response = client.chat.completions.create(
-        model=OPENAI_GPT_MODEL,
-        messages=[
-            {"role": "user",
-             "content": f"In your answer return only the python code, and no text before neither after the code. Do not produce code for importing packages, all the allowed packages are already imported. Write a Python function for the following prompt:\n{user_prompt}"}
-        ],
-        max_completion_tokens=1500
-    )
-    generated_code = response.choices[0].message.content.strip().replace("```","")
-    if generated_code == "":
-        print("empty code")
-        raise Exception("The generated code is empty. You probably sent a too large prompt")
-    generated_code = re.sub(r"^python\s*", "", generated_code)
-    print(generated_code)
-    return generated_code
-
 users_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/users.json"
 courses_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/courses.json"
 
-# Fetch the JSON data from URLs
 def fetch_json(url):
     response = requests.get(url)
-    response.raise_for_status()  # Raise an error for HTTP issues
+    response.raise_for_status()
     return response.json()
 
 try:
-    # Load users and courses data
     users_data = fetch_json(users_url)
     courses_data = fetch_json(courses_url)
 
-    # Extract authorized users for valid courses
     valid_courses = courses_data.get("courses", [])
     authorized_users = set()
 
     for course in valid_courses:
         authorized_users.update(users_data.get(course, []))
 
-    # Replace AUTHORIZED_USERS with the computed set
     AUTHORIZED_USERS = authorized_users
 
     print("AUTHORIZED_USERS updated successfully:")
@@ -82,7 +60,7 @@ app.json = UTF8JSONProvider(app)
 app.secret_key = os.environ.get("SECRET_KEY")
 DEBUG = os.environ.get("DEBUG", None) == "True"
 OPENAI_GPT_MODEL = os.environ.get("OPENAI_GPT_MODEL")
-os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"  # For local testing, disable HTTPS requirement
+os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 credentials = json.loads(os.environ.get('GOOGLE_CREDENTIALS'))
 flow = Flow.from_client_config(
     credentials,
@@ -94,18 +72,12 @@ test_cases_url = os.environ.get("TEST_CASES_URL")
 FORBIDDEN_KEYWORDS = ["import", "open", "eval", "exec", "os", "sys", "subprocess"]
 
 def validate_type(value, expected_type):
-    """
-    Validate the type of a value against an expected type.
-    """
     type_mapping = {
         "str": str,
         "int": int,
         "float": float,
         "list": list,
-        "dict": dict,
-        "np.array": np.ndarray,
-        "pd.dataframe": pd.DataFrame,
-        "pd.series": pd.Series
+        "dict": dict
     }
 
     if expected_type not in type_mapping:
@@ -129,10 +101,53 @@ def analyze_code_safety(code):
             pass
         return False, f"Syntax error in code: {e}"
 
+def prompt_completion(user_prompt):
+    client = OpenAI()
+    response = client.chat.completions.create(
+        model=OPENAI_GPT_MODEL,
+        messages=[
+            {"role": "user",
+             "content": f"In your answer return only the python code, and no text before neither after the code. Do not produce code for importing packages, all the allowed packages are already imported. Write a Python function for the following prompt:\n{user_prompt}"}
+        ],
+        max_completion_tokens=1500
+    )
+    generated_code = response.choices[0].message.content.strip().replace("```","")
+    if generated_code == "":
+        print("empty code")
+        raise Exception("The generated code is empty. You probably sent a too large prompt")
+    generated_code = re.sub(r"^python\s*", "", generated_code)
+    print(generated_code)
+    return generated_code
+
+async def validate_requirements_with_openai(generated_code, requirements):
+    openai_response = OpenAI().chat.completions.create(
+        model=OPENAI_GPT_MODEL,
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    f"Given the following requirements: {requirements},\n"
+                    f"check if the provided code satisfies them:\n"
+                    f"{generated_code}.\n"
+                    f"respond a json with two keys 'satisfied' and 'unsatisfied', each of the pointing to a list of numbers corresponding to the requirement that was either satisfied or not."
+                )
+            }
+        ],
+        max_tokens=500
+    )
+    response_content = openai_response.choices[0].message.content
+    try:
+        requirement_results = json.loads(response_content)
+        satisfied = [requirements[i] for i in requirement_results.get("satisfied", [])]
+        unsatisfied = [requirements[i] for i in requirement_results.get("unsatisfied", [])]
+    except (json.JSONDecodeError, KeyError, IndexError):
+        satisfied, unsatisfied = [], requirements
+        print("Failed to parse OpenAI API response for requirements validation.")
+    return satisfied, unsatisfied
+
 async def execute_test_case(session, cloud_function_url, headers, generated_code, test_case):
     try:
-        # Validate input types
-        for idx, (value, expected_type) in enumerate(zip(test_case["input"], test_case["input_type"].values())):
+        for idx, (value, expected_type) in enumerate(zip(test_case["input"], test_case.get("input_type", {}).values())):
             if not validate_type(value, expected_type):
                 return {
                     "testcase_id": test_case["testcase_id"],
@@ -155,6 +170,7 @@ async def execute_test_case(session, cloud_function_url, headers, generated_code
                     print(f"error: {error}")
                 else:
                     error = await cloud_response.text()
+                    print(f"Authorization issue: {error}")
                 return {
                     "testcase_id": test_case["testcase_id"],
                     "input": test_case["input"],
@@ -167,16 +183,21 @@ async def execute_test_case(session, cloud_function_url, headers, generated_code
 
         actual_output = cloud_result.get("output")
 
-        # Validate output type
-        if not validate_type(actual_output, test_case["output_type"]):
+        if not validate_type(actual_output, test_case.get("output_type")):
             return {
                 "testcase_id": test_case["testcase_id"],
                 "input": test_case["input"],
                 "expected": test_case["expected"],
                 "actual": actual_output,
                 "passed": False,
-                "error": f"Output type mismatch. Expected {test_case['output_type']}."
+                "error": f"Output type mismatch. Expected {test_case['output_type']}"
             }
+
+        requirements = test_case.get("requirements", [])
+        if requirements:
+            satisfied, unsatisfied = await validate_requirements_with_openai(generated_code, requirements)
+        else:
+            satisfied, unsatisfied = [], []
 
         return {
             "testcase_id": test_case["testcase_id"],
@@ -184,7 +205,9 @@ async def execute_test_case(session, cloud_function_url, headers, generated_code
             "expected": test_case["expected"],
             "actual": actual_output,
             "passed": actual_output == test_case["expected"],
-            "error": cloud_result.get("error", "")
+            "error": cloud_result.get("error", ""),
+            "requirements_satisfied": satisfied,
+            "requirements_unsatisfied": unsatisfied
         }
 
     except Exception as e:
@@ -208,7 +231,6 @@ async def validate_student_code():
     token = auth_header.split("Bearer ")[1]
 
     try:
-        # Verify the token with Google's public keys
         response = requests.get(f"https://oauth2.googleapis.com/tokeninfo?access_token={token}")
         if response.status_code != 200:
             return jsonify({"error": "Invalid token"}), 403
@@ -219,7 +241,6 @@ async def validate_student_code():
         if not email:
             return jsonify({"error": "Email not found in token"}), 403
 
-        # Check if the user is authorized
         if email in AUTHORIZED_USERS:
             session["user_email"] = email
             print(f'Welcome, {email}!')
@@ -244,9 +265,8 @@ async def validate_student_code():
         return jsonify({"error": f"Unsafe code: {error_message}"}), 400
 
     response = requests.get(test_cases_url)
-    response.raise_for_status()  # Raise HTTPError for bad responses (4XX, 5XX)
+    response.raise_for_status()
 
-    # Parse the JSON response
     test_cases = response.json()
 
     relevant_test_cases = [tc for tc in test_cases if tc["function_id"] == function_id]
@@ -256,7 +276,6 @@ async def validate_student_code():
     cloud_function_url = os.environ.get("GCP_FUNC_URL")
     service_account_info = json.loads(os.getenv("SERVICE_ACCOUNT_JSON"))
 
-    # Create credentials using from_service_account_info
     credentials = service_account.IDTokenCredentials.from_service_account_info(
         service_account_info,
         target_audience=cloud_function_url
@@ -275,21 +294,25 @@ async def validate_student_code():
             execute_test_case(session, cloud_function_url, headers, generated_code, test_case)
             for test_case in relevant_test_cases
         ]
-        test_results = await asyncio.gather(*tasks)
+        test_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    passed_count = sum(1 for result in test_results if result["passed"])
+    processed_results = []
+    for result in test_results:
+        if isinstance(result, Exception):
+            processed_results.append({"error": str(result), "passed": False})
+        else:
+            processed_results.append(result)
+
+    passed_count = sum(1 for result in processed_results if result.get("passed", False))
 
     result = {
         "function_id": function_id,
         "user_email": user_email,
         "code": generated_code,
-        "test_results": test_results,
-        "total_tests": len(test_results),
+        "test_results": processed_results,
+        "total_tests": len(processed_results),
         "passed_tests": passed_count,
-        "success_rate": passed_count / len(test_results) if test_results else 0
+        "success_rate": passed_count / len(processed_results) if processed_results else 0
     }
 
     return jsonify(result)
-
-if __name__ == '__main__':
-    app.run(debug=True)
