@@ -12,8 +12,7 @@ import asyncio
 from google.oauth2 import service_account
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import Flow
-import numpy as np
-import pandas as pd
+
 
 class UTF8JSONProvider(JSONProvider):
     def dumps(self, obj, **kwargs):
@@ -93,8 +92,8 @@ def analyze_code_safety(code):
         formatted_code = code.replace("\\n", "\n")
         tree = ast.parse(formatted_code)
         for node in ast.walk(tree):
-            if isinstance(node, ast.Import) or isinstance(node, ast.ImportFrom):
-                return False, "Imports are not allowed."
+            # if isinstance(node, ast.Import) or isinstance(node, ast.ImportFrom):
+            #     return False, "Imports are not allowed."
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 if node.func.id in FORBIDDEN_KEYWORDS:
                     return False, f"Use of '{node.func.id}' is not allowed."
@@ -348,3 +347,4 @@ async def validate_student_code():
     }
 
     return jsonify(result)
+
