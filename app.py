@@ -69,7 +69,7 @@ flow = Flow.from_client_config(
 )
 test_cases_url = os.environ.get("TEST_CASES_URL")
 
-FORBIDDEN_KEYWORDS = ["import", "open", "eval", "exec", "os", "sys", "subprocess"]
+FORBIDDEN_KEYWORDS = ["open", "eval", "exec", "os", "sys", "subprocess"]
 
 def validate_type(value, expected_type):
     if expected_type is None:
