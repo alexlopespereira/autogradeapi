@@ -1,12 +1,18 @@
 from flask import jsonify
+import re
+
 
 def call_python(request):
     data = request.get_json()
+    pattern = r'^(?:from\s+\w+(?:\.\w+)*\s+import\s+(?:\w+(?:\s*,\s*\w+)*|\*)|import\s+(?:\w+(?:\s*,\s*\w+)*|\w+(?:\.\w+)*))(?:\s+as\s+\w+)?$'
+    cleaned_text = re.sub(pattern, '', data["code"], flags=re.MULTILINE)
     code = f"""import pandas as pd
 import numpy as np
 import requests
+import io
+import random
 from collections import defaultdict
-{data["code"]}"""
+{cleaned_text}"""
     print(code)
     inputs = data.get("inputs", None)
     exec_globals = {}
