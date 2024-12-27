@@ -1,0 +1,13 @@
+[
+  {"input": ["https://github.com/alexlopespereira/mba_enap/raw/main/data/originais/populacao/POP2024_20241101.xls"],
+    "expected": {"type": "dataframe", "data": {"columns": ["UF", "COD. UF", "COD. MUNIC", "MUNICIPIO", "POPULACAO", "cod_ibge7"],
+      "sample_rows": [
+        {"filter": {"UF": "DF"}, "expected_values": {"POPULACAO": 2982818}},
+        {"filter": {"cod_ibge7": "1100015"}, "expected_values": {"POPULACAO": 22853}}
+      ],
+      "dtypes": {"UF": "object", "COD. UF": "object", "COD. MUNIC": "object", "MUNICIPIO": "object", "POPULACAO": "float64", "cod_ibge7": "object"},
+      "aggregation_checks": {"total_rows": {"min": 5571, "max": 5571}, "sum": {"POPULACAO": 212583750.0}, "mean": {"POPULACAO": 38158.9}}},
+      "validation_rules": {"round_decimals": 1, "row_match_threshold": 0.1}},
+    "function_id": "A6-E3", "testcase_id": "1"
+  }
+]

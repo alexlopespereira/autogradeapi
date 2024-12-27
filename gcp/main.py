@@ -6,45 +6,135 @@ from typing import Any, Dict, List, Union, Optional, Tuple
 import traceback
 import requests
 from decimal import Decimal
+import math
+
+def round_down(n, decimals=1):
+    multiplier = 10 ** decimals
+    return math.floor(n * multiplier) / multiplier
 
 
-def transform_df_output(df, expected_format):
-    """Transform DataFrame output to match expected dictionary format.
-
-    Args:
-        df: pandas DataFrame to transform
-        expected_format: The expected format from test case to guide the transformation
-
-    Returns:
-        dict: Transformed data matching expected format
+def validate_dataframe(df: pd.DataFrame, expected_format: dict) -> Tuple[bool, List[str], dict]:
     """
-    # Handle different types of expected formats
-    if isinstance(expected_format, dict):
-        # If expected output is a dictionary with simple column mapping
-        if all(isinstance(v, (int, float, str)) for v in expected_format.values()):
-            return df.to_dict('records')[0] if not df.empty else {}
+    Validate DataFrame against expected format specifications and return a summary of verified content.
+    Returns:
+        Tuple containing:
+        - bool: Whether validation passed
+        - List[str]: List of error messages
+        - dict: Summary of verified content
+    """
+    if not isinstance(df, pd.DataFrame):
+        return False, ["Input must be a pandas DataFrame"], {}
 
-        # If expected output is a nested dictionary structure
-        if all(isinstance(v, dict) for v in expected_format.values()):
-            result = {}
-            for idx, row in df.iterrows():
-                row_dict = row.to_dict()
-                # Convert any non-serializable types
-                for k, v in row_dict.items():
-                    if isinstance(v, (pd.Series, pd.DataFrame)):
-                        row_dict[k] = v.to_dict()
-                    elif isinstance(v, np.ndarray):
-                        row_dict[k] = v.tolist()
-                result[str(idx)] = row_dict
-            return result
+    if not isinstance(expected_format, dict) or 'data' not in expected_format:
+        return False, ["Invalid expected_format structure"], {}
 
-    # If expected output is a list of dictionaries
-    elif isinstance(expected_format, list):
-        if all(isinstance(item, dict) for item in expected_format):
-            return df.to_dict('records')
+    data_spec = expected_format
+    validation_rules = data_spec.get('validation_rules', {})
+    errors = []
 
-    # Default case: return as records
-    return df.to_dict('records')
+    # Initialize summary dictionary
+    summary = {
+        "verified_samples": [],
+        "aggregation_summary": {}
+    }
+
+    # Validate columns presence
+    if 'columns' in data_spec['data']:
+        missing_cols = set(data_spec['data']['columns']) - set(df.columns)
+        if missing_cols:
+            errors.append(f"Missing columns: {missing_cols}")
+
+    # Validate dtypes
+    if 'dtypes' in data_spec['data']:
+        for col, expected_dtype in data_spec['data']['dtypes'].items():
+            if col not in df.columns:
+                errors.append(f"Column {col} not found")
+                continue
+            if str(df[col].dtype) != expected_dtype:
+                errors.append(f"Column {col} has wrong dtype. Expected {expected_dtype}, got {df[col].dtype}")
+
+    # Validate aggregation checks and collect summary
+    if 'aggregation_checks' in data_spec['data']:
+        agg_checks = data_spec['data']['aggregation_checks']
+        round_decimals = validation_rules.get('round_decimals')
+
+        agg_summary = {}
+
+        # Check total rows
+        if 'total_rows' in agg_checks:
+            row_check = agg_checks['total_rows']
+            total_rows = len(df)
+            agg_summary['total_rows'] = row_check
+            if 'min' in row_check and total_rows < row_check['min']:
+                errors.append(f"DataFrame has {total_rows} rows, minimum required is {row_check['min']}")
+            if 'max' in row_check and total_rows > row_check['max']:
+                errors.append(f"DataFrame has {total_rows} rows, maximum allowed is {row_check['max']}")
+
+        # Check sums
+        if 'sum' in agg_checks:
+            agg_summary['sums'] = agg_checks['sum']
+            for col, expected_sum in agg_checks['sum'].items():
+                if col not in df.columns:
+                    errors.append(f"Column {col} not found for sum check")
+                    continue
+                actual_sum = round_down(df[col].sum(), round_decimals)
+                if actual_sum != expected_sum:
+                    errors.append(f"Sum mismatch for column {col}. Expected {expected_sum}, got {actual_sum}")
+
+        # Check means
+        if 'mean' in agg_checks:
+            agg_summary['means'] = agg_checks['mean']
+            for col, expected_mean in agg_checks['mean'].items():
+                if col not in df.columns:
+                    errors.append(f"Column {col} not found for mean check")
+                    continue
+                actual_mean = round_down(df[col].mean(), round_decimals)
+                if actual_mean != expected_mean:
+                    errors.append(f"Mean mismatch for column {col}. Expected {expected_mean}, got {actual_mean}")
+
+        summary['aggregation_summary'] = agg_summary
+
+    # Validate sample rows and collect verified samples
+    if 'sample_rows' in data_spec['data']:
+        threshold = validation_rules.get('row_match_threshold', 0.001)
+        for i, sample in enumerate(data_spec['data']['sample_rows'], 1):
+            sample_summary = {
+                "filter": sample['filter'],
+                "expected_values": sample['expected_values']
+            }
+            summary['verified_samples'].append(sample_summary)
+
+            filters = []
+            for col, value in sample['filter'].items():
+                filters.append(df[col] == value)
+            filtered_df = df[pd.concat(filters, axis=1).any(axis=1)]
+
+            if filtered_df.empty:
+                errors.append(f"Sample {i}: No rows match filter {sample['filter']}")
+                continue
+
+            all_rows_match = True
+            for _, row in filtered_df.iterrows():
+                current_row_matches = True
+                for col, expected_val in sample['expected_values'].items():
+                    actual_val = row[col]
+                    if isinstance(expected_val, (int, float)) and isinstance(actual_val, (int, float)):
+                        if abs(float(actual_val) - float(expected_val)) > threshold:
+                            current_row_matches = False
+                            break
+                    elif str(actual_val) != str(expected_val):
+                        current_row_matches = False
+                        break
+                if not current_row_matches:
+                    all_rows_match = False
+                    errors.append(f"Sample {i}: Row values don't match expected values for filter {sample['filter']}")
+                    break
+
+            if not all_rows_match:
+                errors.append(f"Sample {i}: No matching values found for filter {sample['filter']}")
+
+    return len(errors) == 0, errors, summary
+
 
 class TestCaseValidator:
     TEST_CASES_URL = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/questions.json"
@@ -102,7 +192,7 @@ class TestCaseValidator:
                     # Ensure expected_mean has the same precision
                     expected_mean = round(float(expected_mean), round_decimals)
 
-                if actual_mean != expected_sum:
+                if actual_mean != expected_mean:
                     errors.append(f"Mean mismatch for column {col}. Expected {expected_mean}, got {actual_mean}")
 
         return len(errors) == 0, errors
@@ -333,51 +423,73 @@ class TestCaseValidator:
         """Compare actual and expected outputs with DataFrame handling."""
         # Handle DataFrame conversion
         if isinstance(actual, pd.DataFrame):
-            actual = transform_df_output(actual, expected)
+            is_valid, errors, summary = validate_dataframe(actual, expected)
+            return is_valid, summary, errors
 
         # Existing comparison logic
         if isinstance(expected, dict) and isinstance(actual, dict):
-            return self._compare_dicts(actual, expected, tolerance)
+            return self._compare_dicts(actual, expected, tolerance), expected, []
         elif isinstance(expected, list) and isinstance(actual, list):
-            return self._compare_lists(actual, expected, tolerance)
+            return self._compare_lists(actual, expected, tolerance), expected, []
 
         # Handle None values
         if actual is None and expected is None:
-            return True
+            return True, expected, []
         if actual is None or expected is None:
-            return False
+            return False, expected, []
 
         # Validate output type if specified
         if output_type and not self.validate_type(actual, output_type):
-            return False
+            return False, expected, []
 
         # Handle text pattern matching (for exercises like A2-E7 to A2-E11)
         if isinstance(expected, str) and isinstance(actual, str):
             if '\n' in expected or '=' in expected or 'o' in expected:
-                return self._normalize_text(actual) == self._normalize_text(expected)
+                return self._normalize_text(actual) == self._normalize_text(expected), expected, []
 
         # Handle numeric comparisons
         if isinstance(expected, (int, float)) and isinstance(actual, (int, float)):
-            return abs(float(actual) - float(expected)) <= tolerance
+            return abs(float(actual) - float(expected)) <= tolerance, expected, []
 
         # Handle list comparisons
         if isinstance(expected, list) and isinstance(actual, list):
-            return self._compare_lists(actual, expected, tolerance)
+            return self._compare_lists(actual, expected, tolerance), expected, []
 
         # Handle dictionary comparisons
         if isinstance(expected, dict) and isinstance(actual, dict):
-            return self._compare_dicts(actual, expected, tolerance)
+            return self._compare_dicts(actual, expected, tolerance), expected, []
 
         # Handle pandas DataFrame/Series comparisons
         if isinstance(expected, (pd.DataFrame, pd.Series)) and isinstance(actual, (pd.DataFrame, pd.Series)):
-            return actual.equals(expected)
+            return actual.equals(expected), expected, []
 
         # Handle numpy array comparisons
         if isinstance(expected, np.ndarray) and isinstance(actual, np.ndarray):
-            return np.allclose(actual, expected, rtol=tolerance)
+            return np.allclose(actual, expected, rtol=tolerance), expected, []
 
         # Default string comparison
-        return str(actual) == str(expected)
+        return str(actual) == str(expected), expected, []
+
+    def _convert_to_serializable(self, obj):
+        """Convert objects to JSON-serializable format."""
+        if isinstance(obj, pd.DataFrame):
+            return obj.to_dict(orient='records')
+        elif isinstance(obj, pd.Series):
+            return obj.to_dict()
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, (np.int64, np.int32)):
+            return int(obj)
+        elif isinstance(obj, (np.float64, np.float32)):
+            return float(obj)
+        elif isinstance(obj, dict):
+            return {k: self._convert_to_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._convert_to_serializable(item) for item in obj]
+        elif isinstance(obj, (set, tuple)):
+            return list(obj)
+        return obj
+
 
     def run_validation(self, code: str) -> Dict[str, Any]:
         """Run all test cases for the provided code and return results."""
@@ -389,8 +501,14 @@ class TestCaseValidator:
 
         try:
             # Clean and prepare code
-            pattern = r'^(?:from\s+\w+(?:\.\w+)*\s+import\s+(?:\w+(?:\s*,\s*\w+)*|\*)|import\s+(?:\w+(?:\s*,\s*\w+)*|\w+(?:\.\w+)*))(?:\s+as\s+\w+)?$'
-            cleaned_text = re.sub(pattern, '', code, flags=re.MULTILINE)
+            patterns = [
+                r'^\s*import\s+.*?(?=\n|$)',  # Matches import statements
+                r'^\s*from\s+.*?import\s+.*?(?=\n|$)'  # Matches from ... import statements
+            ]
+            cleaned_text = code
+            for pattern in patterns:
+                cleaned_text = re.sub(pattern, '', cleaned_text, flags=re.MULTILINE)
+
             full_code = f"""
 import pandas as pd
 import numpy as np
@@ -411,18 +529,17 @@ from collections import defaultdict
             test_results = []
             for test_case in self.test_cases:
                 try:
-                    # Prepare inputs
                     inputs = test_case.get("input", [])
                     if not isinstance(inputs, list):
                         inputs = [inputs]
 
-                    # Check requirements if specified
+                    # Check requirements
                     requirements = test_case.get("requirements", [])
                     if requirements and not self.validate_requirements(cleaned_text, requirements):
                         test_results.append({
                             "testcase_id": test_case["testcase_id"],
                             "passed": False,
-                            "expected": test_case["expected"],
+                            "expected": self._convert_to_serializable(test_case["expected"]),
                             "actual": None,
                             "error": "Code does not meet requirements"
                         })
@@ -430,25 +547,34 @@ from collections import defaultdict
 
                     # Execute function and compare results
                     result = func(*inputs)
-                    passed = self.compare_outputs(
+                    passed, summary, errors = self.compare_outputs(
                         result,
-                        test_case["expected"],
+                        test_case['expected'],
                         test_case.get("output_type")
                     )
 
-                    test_results.append({
-                        "testcase_id": test_case["testcase_id"],
-                        "passed": passed,
-                        "expected": test_case["expected"],
-                        "actual": result,
-                        "error": None
-                    })
+                    if test_case["expected"]["type"] == "dataframe":
+                        test_results.append({
+                            "testcase_id": test_case["testcase_id"],
+                            "passed": passed,
+                            "expected": summary,
+                            "actual": summary,
+                            "error": errors
+                        })
+                    else:
+                        test_results.append({
+                            "testcase_id": test_case["testcase_id"],
+                            "passed": passed,
+                            "expected": test_case["expected"],
+                            "actual": result,
+                            "error": None
+                        })
 
                 except Exception as e:
                     test_results.append({
                         "testcase_id": test_case["testcase_id"],
                         "passed": False,
-                        "expected": test_case["expected"],
+                        "expected": self._convert_to_serializable(test_case["expected"]),
                         "actual": None,
                         "error": str(e)
                     })
