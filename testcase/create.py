@@ -11,8 +11,8 @@ def create_dataframe_test_case_flexible(
         function_id: str,
         testcase_id: str,
         sample_conditions: List[Dict[str, Any]],
-        round_decimals: int = 2,
-        row_match_threshold: float = 0.01
+        round_decimals: int = 1,
+        row_match_threshold: float = 0.1
 ) -> Dict[str, Any]:
     """
     Create a test case specification with flexible sample row selection.
@@ -113,7 +113,8 @@ def create_dataframe_test_case_flexible(
 def example_usage_flexible(file_path):
     # Create sample DataFrame
     df = pd.read_excel(file_path, sheet_name="MUNICÍPIOS", skiprows=1, converters={'COD. UF': str, 'COD. MUNIC': str})
-    df.rename(columns={df.columns[-2]: "POPULACAO"}, inplace=True)
+    df = df.rename(columns={df.columns[-2]: "POPULACAO",
+                            df.columns[-3]: "MUNICIPIO"})
     df = df.iloc[:, :-1]  # Remove a última coluna
     df['cod_ibge7'] = df['COD. UF'] + df['COD. MUNIC']
     df = df[:-40]
@@ -139,8 +140,7 @@ def example_usage_flexible(file_path):
         input_value=file_path,
         function_id="A6-E3",
         testcase_id="1",
-        sample_conditions=sample_conditions,
-        round_decimals=1
+        sample_conditions=sample_conditions
     )
 
     return test_case
@@ -150,4 +150,4 @@ if __name__ == "__main__":
     # Example usage
     test_case = example_usage_flexible('https://github.com/alexlopespereira/mba_enap/raw/main/data/originais/populacao/POP2024_20241101.xls')
     print("Generated Test Case:")
-    print(json.dumps(test_case, indent=2))
+    print(json.dumps(test_case).replace("\n",""))

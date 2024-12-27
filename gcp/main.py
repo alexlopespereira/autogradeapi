@@ -8,6 +8,44 @@ import requests
 from decimal import Decimal
 
 
+def transform_df_output(df, expected_format):
+    """Transform DataFrame output to match expected dictionary format.
+
+    Args:
+        df: pandas DataFrame to transform
+        expected_format: The expected format from test case to guide the transformation
+
+    Returns:
+        dict: Transformed data matching expected format
+    """
+    # Handle different types of expected formats
+    if isinstance(expected_format, dict):
+        # If expected output is a dictionary with simple column mapping
+        if all(isinstance(v, (int, float, str)) for v in expected_format.values()):
+            return df.to_dict('records')[0] if not df.empty else {}
+
+        # If expected output is a nested dictionary structure
+        if all(isinstance(v, dict) for v in expected_format.values()):
+            result = {}
+            for idx, row in df.iterrows():
+                row_dict = row.to_dict()
+                # Convert any non-serializable types
+                for k, v in row_dict.items():
+                    if isinstance(v, (pd.Series, pd.DataFrame)):
+                        row_dict[k] = v.to_dict()
+                    elif isinstance(v, np.ndarray):
+                        row_dict[k] = v.tolist()
+                result[str(idx)] = row_dict
+            return result
+
+    # If expected output is a list of dictionaries
+    elif isinstance(expected_format, list):
+        if all(isinstance(item, dict) for item in expected_format):
+            return df.to_dict('records')
+
+    # Default case: return as records
+    return df.to_dict('records')
+
 class TestCaseValidator:
     TEST_CASES_URL = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/questions.json"
 
@@ -291,9 +329,18 @@ class TestCaseValidator:
                 return False
         return True
 
-    def compare_outputs(self, actual: Any, expected: Any, output_type: Optional[str] = None,
-                        tolerance: float = 0.1) -> bool:
-        """Compare actual and expected outputs with comprehensive type checking and comparison."""
+    def compare_outputs(self, actual, expected, output_type=None, tolerance=0.1):
+        """Compare actual and expected outputs with DataFrame handling."""
+        # Handle DataFrame conversion
+        if isinstance(actual, pd.DataFrame):
+            actual = transform_df_output(actual, expected)
+
+        # Existing comparison logic
+        if isinstance(expected, dict) and isinstance(actual, dict):
+            return self._compare_dicts(actual, expected, tolerance)
+        elif isinstance(expected, list) and isinstance(actual, list):
+            return self._compare_lists(actual, expected, tolerance)
+
         # Handle None values
         if actual is None and expected is None:
             return True
