@@ -112,18 +112,24 @@ def create_grupo():
 
     df = pd.DataFrame(df_data, columns=["Grupo", "Nome"])
 
-
-
     # Define sample conditions
-    sample_conditions = [  ]
+    sample_rows = [
+        {
+            # First row to check
+            "filter": {
+                'Group': '2'  # How to find this row
+            },
+            "expected_values": { 'Name': 'Olga Crocker' }
+        }
+    ]
 
     # Create test case
     test_case = create_test_case_specification(
         groundtruth_df=df,
-        input_value=nomes,
+        input_value=[nomes, 42, 4],
         function_id="A6-E2",
         testcase_id="1",
-        sample_conditions=sample_conditions
+        sample_rows=sample_rows
     )
 
     return test_case
@@ -178,6 +184,6 @@ def create_populacao():
 
 if __name__ == "__main__":
     # Example usage
-    test_case = create_populacao()
+    test_case = create_grupo()
     print("Generated Test Case:")
     print(json.dumps(test_case).replace("\n",""))

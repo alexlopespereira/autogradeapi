@@ -513,6 +513,7 @@ class TestCaseValidator:
 import pandas as pd
 import numpy as np
 import requests
+import math
 import io
 import random
 from collections import defaultdict
@@ -546,6 +547,7 @@ from collections import defaultdict
                         continue
 
                     # Execute function and compare results
+                    print(f"inputs: {inputs}")
                     result = func(*inputs)
                     passed, summary, errors = self.compare_outputs(
                         result,

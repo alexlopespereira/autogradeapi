@@ -10,20 +10,39 @@ def call_python_mockup():
 
     # Test function that returns a DataFrame
     test_code = """
-def process_population(path):
-    file_path = 'https://github.com/alexlopespereira/mba_enap/raw/main/data/originais/populacao/POP2024_20241101.xls'
-    df = pd.read_excel(file_path, sheet_name="MUNICÍPIOS", skiprows=1, converters={'COD. UF': str, 'COD. MUNIC': str})
-    df = df.rename(columns={df.columns[-2]: "POPULACAO",
-                            df.columns[-3]: "MUNICIPIO"})
-    df = df.iloc[:, :-1]  # Remove a última coluna
-    df['cod_ibge7'] = df['COD. UF'] + df['COD. MUNIC']
-    df = df[:-40]
+def gerar_permutacao_em_grupos(names_list, seed, n):
+    import math
+    import pandas as pd
+    import random
+    
+    # Set the random seed
+    random.seed(seed)
+    
+    # Calculate number of people and groups needed
+    N = len(names_list)
+    num_groups = math.ceil(N/n)
+    
+    # Create list of group names repeated n times
+    groups = ['Grupo ' + str(g) for g in range(num_groups)] * n
+    groups.sort()
+    groups = groups[:N]  # Trim to match number of names
+    
+    # Shuffle the names
+    shuffled_names = names_list.copy()  # Create a copy to avoid modifying original list
+    random.shuffle(shuffled_names)
+    
+    # Create DataFrame with explicit columns
+    df = pd.DataFrame({
+        'Grupo': groups,
+        'Nome': shuffled_names
+    })
+    
     return df
     """
 
     payload = {
         "code": test_code,
-        "function_id": "A6-E3"
+        "function_id": "A6-E2"
     }
 
     with app.test_request_context(
