@@ -2,17 +2,216 @@ from flask import jsonify
 import re
 import numpy as np
 import pandas as pd
-from typing import Any, Dict, List, Union, Optional
+from typing import Any, Dict, List, Union, Optional, Tuple
 import traceback
 import requests
 from decimal import Decimal
-import json
-from functools import lru_cache
+
 
 class TestCaseValidator:
-    def __init__(self, test_cases: List[Dict[str, Any]]):
-        self.test_cases = test_cases
-        
+    TEST_CASES_URL = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/questions.json"
+
+    def _validate_aggregates(self, df: pd.DataFrame, agg_checks: Dict, validation_rules: Dict = None) -> Tuple[bool, List[str]]:
+        """
+        Validate DataFrame aggregate values.
+
+        Args:
+            df: DataFrame to validate
+            agg_checks: Dictionary containing aggregation checks
+            validation_rules: Dictionary containing validation rules including round_decimals
+
+        Returns:
+            Tuple of (bool, List[str]) indicating success and any error messages
+        """
+        errors = []
+        round_decimals = validation_rules.get('round_decimals') if validation_rules else None
+
+        # Check total rows
+        if "total_rows" in agg_checks:
+            row_check = agg_checks["total_rows"]
+            total_rows = len(df)
+            if "min" in row_check and total_rows < row_check["min"]:
+                errors.append(f"DataFrame has {total_rows} rows, minimum required is {row_check['min']}")
+            if "max" in row_check and total_rows > row_check["max"]:
+                errors.append(f"DataFrame has {total_rows} rows, maximum allowed is {row_check['max']}")
+
+        # Check column sums
+        if "sum" in agg_checks:
+            for col, expected_sum in agg_checks["sum"].items():
+                if col not in df.columns:
+                    errors.append(f"Column {col} not found for sum check")
+                    continue
+
+                actual_sum = df[col].sum()
+                if round_decimals is not None:
+                    actual_sum = round(actual_sum, round_decimals)
+                    # Ensure expected_sum has the same precision
+                    expected_sum = round(float(expected_sum), round_decimals)
+
+                if actual_sum != expected_sum:
+                    errors.append(f"Sum mismatch for column {col}. Expected {expected_sum}, got {actual_sum}")
+
+        # Check column means
+        if "mean" in agg_checks:
+            for col, expected_mean in agg_checks["mean"].items():
+                if col not in df.columns:
+                    errors.append(f"Column {col} not found for mean check")
+                    continue
+
+                actual_mean = df[col].mean()
+                if round_decimals is not None:
+                    actual_mean = round(actual_mean, round_decimals)
+                    # Ensure expected_mean has the same precision
+                    expected_mean = round(float(expected_mean), round_decimals)
+
+                if actual_mean != expected_sum:
+                    errors.append(f"Mean mismatch for column {col}. Expected {expected_mean}, got {actual_mean}")
+
+        return len(errors) == 0, errors
+
+    def _match_pattern(self, value: str, pattern: str) -> bool:
+        """Match string value against a regex pattern."""
+        try:
+            return bool(re.match(pattern, str(value)))
+        except re.error:
+            return False
+
+    def _check_value_range(self, value: Any, range_spec: Dict) -> bool:
+        """Check if value falls within specified range."""
+        if not isinstance(value, (int, float)):
+            return False
+
+        if "min" in range_spec and value < range_spec["min"]:
+            return False
+        if "max" in range_spec and value > range_spec["max"]:
+            return False
+        return True
+
+    def _filter_dataframe_row(self, df: pd.DataFrame, filter_conditions: Dict) -> pd.DataFrame:
+        """Filter DataFrame based on given conditions including pattern matching."""
+        query_parts = []
+
+        for col, condition in filter_conditions.items():
+            if isinstance(condition, dict):
+                if "pattern" in condition:
+                    mask = df[col].apply(lambda x: self._match_pattern(x, condition["pattern"]))
+                    df = df[mask]
+                elif "min" in condition or "max" in condition:
+                    if "min" in condition:
+                        df = df[df[col] >= condition["min"]]
+                    if "max" in condition:
+                        df = df[df[col] <= condition["max"]]
+            else:
+                query_parts.append(f'{col} == @condition')
+
+        if query_parts:
+            query = ' & '.join(query_parts)
+            return df.query(query)
+        return df
+
+    def _compare_row_values(self, row: pd.Series, expected_values: Dict,
+                            threshold: float = 0.001) -> bool:
+        """Compare a single row with expected values including range checks."""
+        for col, expected_val in expected_values.items():
+            if col not in row:
+                return False
+
+            actual_val = row[col]
+
+            # Handle range specifications
+            if isinstance(expected_val, dict) and ("min" in expected_val or "max" in expected_val):
+                if not self._check_value_range(actual_val, expected_val):
+                    return False
+            # Handle numeric comparisons
+            elif isinstance(expected_val, (int, float)) and isinstance(actual_val, (int, float)):
+                if abs(float(actual_val) - float(expected_val)) > threshold:
+                    return False
+            # Handle string comparisons
+            elif str(actual_val) != str(expected_val):
+                return False
+        return True
+
+    def _compare_dataframes(self, actual: pd.DataFrame, expected_dict: Dict,
+                          validation_rules: Dict = None) -> Tuple[bool, List[str]]:
+        """Compare DataFrame with enhanced validation including aggregates and patterns."""
+        if validation_rules is None:
+            validation_rules = {}
+
+        errors = []
+
+        try:
+            # Check columns
+            missing_cols = set(expected_dict["columns"]) - set(actual.columns)
+            if missing_cols:
+                errors.append(f"Missing columns: {missing_cols}")
+                return False, errors
+
+            # Check data types if specified
+            if "dtypes" in expected_dict:
+                for col, dtype in expected_dict["dtypes"].items():
+                    if str(actual[col].dtype) != dtype:
+                        errors.append(f"Column {col} has wrong dtype. Expected {dtype}, got {actual[col].dtype}")
+                        return False, errors
+
+            # Round decimals if specified
+            if validation_rules.get("round_decimals") is not None:
+                actual = actual.round(validation_rules["round_decimals"])
+
+            # Check aggregate values if specified
+            if "aggregation_checks" in expected_dict:
+                is_valid, agg_errors = self._validate_aggregates(actual, expected_dict["aggregation_checks"], validation_rules)
+                if not is_valid:
+                    errors.extend(agg_errors)
+                    return False, errors
+
+
+            # Check sample rows
+            threshold = validation_rules.get("row_match_threshold", 0.001)
+
+            for i, sample in enumerate(expected_dict["sample_rows"], 1):
+                # Filter the DataFrame for matching rows
+                filtered_df = self._filter_dataframe_row(actual, sample["filter"])
+
+                if filtered_df.empty:
+                    errors.append(f"Sample {i}: No rows match filter {sample['filter']}")
+                    return False, errors
+
+                # Check if any row matches the expected values
+                found_match = False
+                for _, row in filtered_df.iterrows():
+                    if self._compare_row_values(row, sample["expected_values"], threshold):
+                        found_match = True
+                        break
+
+                if not found_match:
+                    errors.append(
+                        f"Sample {i}: No matching values found for filter {sample['filter']}. "
+                        f"Expected values: {sample['expected_values']}"
+                    )
+                    return False, errors
+
+            return True, []
+
+        except Exception as e:
+            errors.append(f"Error comparing DataFrames: {str(e)}")
+            return False, errors
+
+    def __init__(self, function_id: str):
+        """Initialize validator with function_id and fetch relevant test cases."""
+        self.function_id = function_id
+        self.test_cases = self._fetch_test_cases()
+
+    def _fetch_test_cases(self) -> List[Dict[str, Any]]:
+        """Fetch and filter test cases for the specified function_id."""
+        try:
+            response = requests.get(self.TEST_CASES_URL)
+            response.raise_for_status()
+            all_test_cases = response.json()
+            return [tc for tc in all_test_cases if tc.get("function_id") == self.function_id]
+        except Exception as e:
+            print(f"Error fetching test cases: {str(e)}")
+            return []
+
     def validate_type(self, value: Any, expected_type: str) -> bool:
         """Validate if the value matches the expected type."""
         type_mapping = {
@@ -32,7 +231,7 @@ class TestCaseValidator:
             "pandas series": lambda c: "pd.Series" in c or "pandas.Series" in c,
             "pandas dataframe": lambda c: "pd.DataFrame" in c or "pandas.DataFrame" in c
         }
-        
+
         for req in requirements:
             req_lower = req.lower()
             for key, check_func in requirement_checks.items():
@@ -58,7 +257,7 @@ class TestCaseValidator:
         """Compare lists with special handling for numeric values."""
         if len(actual) != len(expected):
             return False
-        
+
         for a, e in zip(actual, expected):
             if isinstance(e, (int, float)) and isinstance(a, (int, float)):
                 if abs(float(a) - float(e)) > tolerance:
@@ -77,7 +276,7 @@ class TestCaseValidator:
         """Compare dictionaries with special handling for numeric values."""
         if set(actual.keys()) != set(expected.keys()):
             return False
-        
+
         for key in expected:
             if isinstance(expected[key], (int, float)) and isinstance(actual[key], (int, float)):
                 if abs(float(actual[key]) - float(expected[key])) > tolerance:
@@ -92,8 +291,8 @@ class TestCaseValidator:
                 return False
         return True
 
-    def compare_outputs(self, actual: Any, expected: Any, output_type: Optional[str] = None, 
-                       tolerance: float = 0.1) -> bool:
+    def compare_outputs(self, actual: Any, expected: Any, output_type: Optional[str] = None,
+                        tolerance: float = 0.1) -> bool:
         """Compare actual and expected outputs with comprehensive type checking and comparison."""
         # Handle None values
         if actual is None and expected is None:
@@ -133,112 +332,19 @@ class TestCaseValidator:
         # Default string comparison
         return str(actual) == str(expected)
 
-    def validate_test_case(self, test_case: Dict[str, Any], code: str, func: callable) -> Dict[str, Any]:
-        """Validate a single test case and return the result."""
+    def run_validation(self, code: str) -> Dict[str, Any]:
+        """Run all test cases for the provided code and return results."""
+        if not self.test_cases:
+            return {
+                "status": "error",
+                "message": f"No test cases found for function_id: {self.function_id}"
+            }
+
         try:
-            # Check requirements if specified
-            requirements = test_case.get("requirements", [])
-            if requirements and not self.validate_requirements(code, requirements):
-                return {
-                    "testcase_id": test_case["testcase_id"],
-                    "passed": False,
-                    "expected": test_case["expected"],
-                    "actual": None,
-                    "error": "Code does not meet requirements"
-                }
-
-            # Prepare inputs
-            inputs = test_case.get("input", [])
-            if not isinstance(inputs, list):
-                inputs = [inputs]
-
-            # Validate input types if specified
-            input_types = test_case.get("input_type", {})
-            for i, input_val in enumerate(inputs, 1):
-                if str(i) in input_types:
-                    if not self.validate_type(input_val, input_types[str(i)]):
-                        return {
-                            "testcase_id": test_case["testcase_id"],
-                            "passed": False,
-                            "expected": test_case["expected"],
-                            "actual": None,
-                            "error": f"Input {i} has incorrect type"
-                        }
-
-            # Execute function
-            result = func(*inputs)
-
-            # Compare output
-            passed = self.compare_outputs(
-                result,
-                test_case["expected"],
-                test_case.get("output_type")
-            )
-
-            return {
-                "testcase_id": test_case["testcase_id"],
-                "passed": passed,
-                "expected": test_case["expected"],
-                "actual": result,
-                "error": None
-            }
-
-        except Exception as e:
-            return {
-                "testcase_id": test_case["testcase_id"],
-                "passed": False,
-                "expected": test_case["expected"],
-                "actual": None,
-                "error": str(e)
-            }
-
-@lru_cache(maxsize=1)
-def fetch_test_cases(url: str) -> List[Dict[str, Any]]:
-    """Fetch test cases from URL with caching."""
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        print(f"Error fetching test cases: {str(e)}")
-        return []
-
-def filter_test_cases(test_cases: List[Dict[str, Any]], function_id: str) -> List[Dict[str, Any]]:
-    """Filter test cases for specific function_id."""
-    return [tc for tc in test_cases if tc.get("function_id") == function_id]
-
-def call_python(request):
-    """Cloud Function to execute and validate Python code against test cases."""
-    try:
-        # Get request data
-        data = request.get_json()
-        code = data.get("code")
-        function_id = data.get("function_id")
-        test_cases_url = data.get("test_cases_url", "https://raw.githubusercontent.com/your-repo/test-cases.json")
-
-        if not all([code, function_id]):
-            return jsonify({
-                "status": "error",
-                "message": "Missing required parameters: code or function_id"
-            }), 400
-
-        # Fetch and filter test cases
-        all_test_cases = fetch_test_cases(test_cases_url)
-        test_cases = filter_test_cases(all_test_cases, function_id)
-
-        if not test_cases:
-            return jsonify({
-                "status": "error",
-                "message": f"No test cases found for function_id: {function_id}"
-            }), 404
-
-        # Initialize validator
-        validator = TestCaseValidator(test_cases)
-
-        # Clean and prepare code
-        pattern = r'^(?:from\s+\w+(?:\.\w+)*\s+import\s+(?:\w+(?:\s*,\s*\w+)*|\*)|import\s+(?:\w+(?:\s*,\s*\w+)*|\w+(?:\.\w+)*))(?:\s+as\s+\w+)?$'
-        cleaned_text = re.sub(pattern, '', code, flags=re.MULTILINE)
-        full_code = f"""
+            # Clean and prepare code
+            pattern = r'^(?:from\s+\w+(?:\.\w+)*\s+import\s+(?:\w+(?:\s*,\s*\w+)*|\*)|import\s+(?:\w+(?:\s*,\s*\w+)*|\w+(?:\.\w+)*))(?:\s+as\s+\w+)?$'
+            cleaned_text = re.sub(pattern, '', code, flags=re.MULTILINE)
+            full_code = f"""
 import pandas as pd
 import numpy as np
 import requests
@@ -246,34 +352,105 @@ import io
 import random
 from collections import defaultdict
 {cleaned_text}
-        """
+            """
 
-        # Execute code and get function
-        exec_globals = {}
-        exec(full_code, exec_globals)
-        func_name = [name for name in exec_globals if callable(exec_globals[name])][-1]
-        func = exec_globals[func_name]
+            # Execute code and get function
+            exec_globals = {}
+            exec(full_code, exec_globals)
+            func_name = [name for name in exec_globals if callable(exec_globals[name])][-1]
+            func = exec_globals[func_name]
 
-        # Run all test cases
-        test_results = []
-        for test_case in test_cases:
-            result = validator.validate_test_case(test_case, cleaned_text, func)
-            test_results.append(result)
+            # Run all test cases
+            test_results = []
+            for test_case in self.test_cases:
+                try:
+                    # Prepare inputs
+                    inputs = test_case.get("input", [])
+                    if not isinstance(inputs, list):
+                        inputs = [inputs]
 
-        # Calculate summary statistics
-        total_tests = len(test_results)
-        passed_tests = sum(1 for r in test_results if r["passed"])
+                    # Check requirements if specified
+                    requirements = test_case.get("requirements", [])
+                    if requirements and not self.validate_requirements(cleaned_text, requirements):
+                        test_results.append({
+                            "testcase_id": test_case["testcase_id"],
+                            "passed": False,
+                            "expected": test_case["expected"],
+                            "actual": None,
+                            "error": "Code does not meet requirements"
+                        })
+                        continue
 
-        return jsonify({
-            "status": "success",
-            "code": cleaned_text,
-            "test_results": test_results,
-            "summary": {
-                "total_tests": total_tests,
-                "passed_tests": passed_tests,
-                "success_rate": f"{(passed_tests/total_tests)*100:.2f}%"
+                    # Execute function and compare results
+                    result = func(*inputs)
+                    passed = self.compare_outputs(
+                        result,
+                        test_case["expected"],
+                        test_case.get("output_type")
+                    )
+
+                    test_results.append({
+                        "testcase_id": test_case["testcase_id"],
+                        "passed": passed,
+                        "expected": test_case["expected"],
+                        "actual": result,
+                        "error": None
+                    })
+
+                except Exception as e:
+                    test_results.append({
+                        "testcase_id": test_case["testcase_id"],
+                        "passed": False,
+                        "expected": test_case["expected"],
+                        "actual": None,
+                        "error": str(e)
+                    })
+
+            # Calculate summary statistics
+            total_tests = len(test_results)
+            passed_tests = sum(1 for r in test_results if r["passed"])
+
+            return {
+                "status": "success",
+                "code": cleaned_text,
+                "test_results": test_results,
+                "summary": {
+                    "total_tests": total_tests,
+                    "passed_tests": passed_tests,
+                    "success_rate": f"{(passed_tests / total_tests) * 100:.2f}%"
+                }
             }
-        }), 200
+
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": "An error occurred while processing the code",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            }
+
+
+def call_python(request):
+    """Cloud Function to execute and validate Python code against test cases."""
+    try:
+        data = request.get_json()
+        code = data.get("code")
+        function_id = data.get("function_id")
+
+        if not all([code, function_id]):
+            return jsonify({
+                "status": "error",
+                "message": "Missing required parameters: code or function_id"
+            }), 400
+
+        # Initialize validator and run validation
+        validator = TestCaseValidator(function_id)
+        result = validator.run_validation(code)
+
+        if result["status"] == "error":
+            return jsonify(result), 500
+
+        return jsonify(result), 200
 
     except Exception as e:
         return jsonify({
