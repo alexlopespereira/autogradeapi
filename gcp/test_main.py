@@ -10,39 +10,21 @@ def call_python_mockup():
 
     # Test function that returns a DataFrame
     test_code = """
-def gerar_permutacao_em_grupos(names_list, seed, n):
-    import math
-    import pandas as pd
-    import random
-    
-    # Set the random seed
-    random.seed(seed)
-    
-    # Calculate number of people and groups needed
-    N = len(names_list)
-    num_groups = math.ceil(N/n)
-    
-    # Create list of group names repeated n times
-    groups = ['Grupo ' + str(g) for g in range(num_groups)] * n
-    groups.sort()
-    groups = groups[:N]  # Trim to match number of names
-    
-    # Shuffle the names
-    shuffled_names = names_list.copy()  # Create a copy to avoid modifying original list
-    random.shuffle(shuffled_names)
-    
-    # Create DataFrame with explicit columns
-    df = pd.DataFrame({
-        'Grupo': groups,
-        'Nome': shuffled_names
+def ler_arquivo_excel(caminho):
+    df = pd.read_excel(caminho)
+    df = df.iloc[:-1]
+    df['Unnamed: 1'] = df['Unnamed: 1'].astype(str)
+    df = df.rename(columns={
+        'Unnamed: 0': 'nivel',
+        'Unnamed: 1': 'cod_ibge7',
+        'Unnamed: 2': 'municipio'
     })
-    
     return df
-    """
+"""
 
     payload = {
         "code": test_code,
-        "function_id": "A6-E2"
+        "function_id": "A6-E7"
     }
 
     with app.test_request_context(

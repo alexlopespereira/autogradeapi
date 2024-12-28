@@ -16,7 +16,7 @@ def create_test_case_specification(
         testcase_id: str,
         sample_rows: List[Dict[str, Dict[str, Any]]],
         round_decimals: int = 1,
-        row_match_threshold: float = 0.1
+        row_match_threshold: float = 0.01
 ) -> Dict[str, Any]:
     """
     Create a test case specification from a groundtruth DataFrame.
@@ -117,9 +117,9 @@ def create_grupo():
         {
             # First row to check
             "filter": {
-                'Group': '2'  # How to find this row
+                'Grupo': 'Grupo 2'  # How to find this row
             },
-            "expected_values": { 'Name': 'Olga Crocker' }
+            "expected_values": { 'Nome': 'Olga Crocker' }
         }
     ]
 
@@ -182,8 +182,257 @@ def create_populacao():
     return test_case
 
 
+def create_gini_6_4():
+    # Create sample DataFrame
+    data = {"Municipio": {
+            "0": "110001 Alta Floresta D'Oeste",
+            "1": "110037 Alto Alegre dos Parecis",
+            "2": "110040 Alto Paraíso",
+            "3": "110034 Alvorada D'Oeste",
+            "4": "110002 Ariquemes"},
+            "1991": {"0": 0.5983, "1": "", "2": "", "3": 0.569, "4": 0.5827},
+            "2000": {"0": 0.5868, "1": 0.508, "2": 0.6256, "3": 0.6534, "4": 0.5927},
+            "2010": {"0": 0.5893, "1": 0.5491, "2": 0.5417, "3": 0.5355, "4": 0.5496}}
+
+    df = pd.DataFrame(data)
+    unpivoted_df = pd.melt(df, id_vars=["Municipio"], var_name="data", value_name="gini")
+    unpivoted_df["gini"] = pd.to_numeric(unpivoted_df["gini"], errors='coerce')
+
+    # Define sample conditions
+    sample_rows = [
+        {
+            # First row to check
+            "filter": {
+                "Municipio": "110001 Alta Floresta D'Oeste", 'data': '1991'  # How to find this row
+            },
+            "expected_values": {
+                "gini": 0.5983
+            }
+        },
+        {
+            # First row to check
+            "filter": {
+                "Municipio": "110002 Ariquemes", 'data': '2010'  # How to find this row
+            },
+            "expected_values": {
+                "gini": 0.5496
+            }
+        }
+    ]
+
+    # Create test case
+    test_case = create_test_case_specification(
+        groundtruth_df=unpivoted_df,
+        input_value=data,
+        function_id="A6-E4",
+        testcase_id="1",
+        sample_rows=sample_rows,
+        row_match_threshold=0.001
+    )
+
+    return test_case
+
+def codibge_6_5():
+    # Create sample DataFrame
+    data = {
+        'Municipio': [
+            "110001 Alta Floresta D'Oeste",
+            "110037 Alto Alegre dos Parecis",
+            "110040 Alto Paraíso",
+            "110034 Alvorada D'Oeste",
+            "110002 Ariquemes"
+        ],
+        '1991': [0.5983, None, None, 0.569, 0.5827],
+        '2000': [0.5868, 0.508, 0.6256, 0.6534, 0.5927],
+        '2010': [0.5893, 0.5491, 0.5417, 0.5355, 0.5496]
+    }
+
+    df = pd.DataFrame(data)
+    df['cod_ibge6'] = df['Municipio'].str.split().str[0]
+
+    # Define sample conditions
+    sample_rows = [
+        {
+            # First row to check
+            "filter": {
+                "Municipio": "110001 Alta Floresta D'Oeste"
+            },
+            "expected_values": {
+                "cod_ibge6": "110001"
+            }
+        },
+        {
+            # First row to check
+            "filter": {
+                "Municipio": "110002 Ariquemes",
+            },
+            "expected_values": {
+                "cod_ibge6": "110002"
+            }
+        }
+    ]
+
+    # Create test case
+    test_case = create_test_case_specification(
+        groundtruth_df=df,
+        input_value=data,
+        function_id="A6-E5",
+        testcase_id="1",
+        sample_rows=sample_rows,
+        row_match_threshold=0.001
+    )
+
+    return test_case
+
+
+def morbidade_6_6():
+
+    path: str = 'https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/consolidado/morbidade.csv'
+
+    df = pd.read_csv(path, sep=';', na_values=['-', '...'], decimal=',', dtype={'cod_ibge6': str}, index_col=0)
+
+
+    # Define sample conditions
+    sample_rows = [
+        {
+            # First row to check
+            "filter": {
+                "cod_ibge6": "530010", "mes_ano": "2020-01-01"
+            },
+            "expected_values": {
+                "Internações": 15827.0
+            }
+        },
+        {
+            # First row to check
+            "filter": {
+                "cod_ibge6": "110001", "mes_ano": "2019-12-01"
+            },
+            "expected_values": {
+                "Internações": 193.0
+            }
+        }
+    ]
+
+    # Create test case
+    test_case = create_test_case_specification(
+        groundtruth_df=df,
+        input_value=path,
+        function_id="A6-E6",
+        testcase_id="1",
+        sample_rows=sample_rows,
+        row_match_threshold=0.01
+    )
+
+    return test_case
+
+
+def pibmunicipios_6_7():
+    caminho_arquivo: str = 'https://github.com/alexlopespereira/mba_enap/raw/main/data/originais/pib/pib_municipios.xlsx'
+
+    df = pd.read_excel(caminho_arquivo, dtype={'CodIBGE': str})
+    df = df.iloc[:-1]
+
+    # Define sample conditions
+    sample_rows = [
+        {
+            # First row to check
+            "filter": {
+                "CodIBGE": "1100015",
+            },
+            "expected_values": {
+                "2007": 191364
+            }
+        },
+        {
+            # First row to check
+            "filter": {
+                "CodIBGE": "5300108"
+            },
+            "expected_values": {
+                "2017": 244682756
+            }
+        }
+    ]
+
+    # Create test case
+    test_case = create_test_case_specification(
+        groundtruth_df=df,
+        input_value=caminho_arquivo,
+        function_id="A6-E7",
+        testcase_id="1",
+        sample_rows=sample_rows,
+        row_match_threshold=0.01
+    )
+
+    return test_case
+
+
+def morbidade_desagregado_6_8():
+    try:
+        repo_path = '../mba_enap/'  # Temporary directory for cloning
+        # Repo.clone_from(repo_url, repo_path)
+        data_dir = f'{repo_path}/data/originais/morbidade/desagregado'
+        all_data = []
+        for year_dir in ['2019', '2020', '2021']:
+            year_path = f'{data_dir}/{year_dir}'
+            import os
+            for filename in os.listdir(year_path):
+                if filename.endswith('.csv'):
+                    file_path = os.path.join(year_path, filename)
+                    try:
+                        df = pd.read_csv(file_path, encoding='iso8859-1', skiprows=3, sep=';', skipfooter=7, engine='python')
+                        all_data.append(df)
+                    except pd.errors.ParserError as e:
+                        print(f"Error parsing {filename}: {e}")
+                    except Exception as e:
+                        print(f"An unexpected error occurred while reading {filename}: {e}")
+
+        if not all_data:
+            print("No CSV files found in the specified directory.")
+            return None
+        concatenated_df = pd.concat(all_data, ignore_index=True)
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
+    # finally:
+    #     import shutil
+        # shutil.rmtree('temp_repo', ignore_errors=True)  # Remove the temporary directory
+    sample_rows = [
+        {
+            # First row to check
+            "filter": {
+                "CodIBGE": "1100015",
+            },
+            "expected_values": {
+                "2007": 191364
+            }
+        },
+        {
+            # First row to check
+            "filter": {
+                "Município": "530010 Brasília"
+            },
+            "expected_values": {
+                "Internações": 20840
+            }
+        }
+    ]
+
+    # Create test case
+    test_case = create_test_case_specification(
+        groundtruth_df=df,
+        input_value=concatenated_df,
+        function_id="A6-E7",
+        testcase_id="1",
+        sample_rows=sample_rows,
+        row_match_threshold=0.01
+    )
+
+    return test_case
+
 if __name__ == "__main__":
     # Example usage
-    test_case = create_grupo()
+    test_case = pibmunicipios_6_7() #create_grupo()
     print("Generated Test Case:")
     print(json.dumps(test_case).replace("\n",""))

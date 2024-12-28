@@ -15,12 +15,12 @@ def round_down(n, decimals=1):
 
 def validate_dataframe(df: pd.DataFrame, expected_format: dict) -> Tuple[bool, List[str], dict]:
     """
-    Validate DataFrame against expected format specifications and return a summary of verified content.
+    Validate DataFrame against expected format specifications.
     Returns:
         Tuple containing:
         - bool: Whether validation passed
-        - List[str]: List of error messages
-        - dict: Summary of verified content
+        - List[str]: List of error messages if validation failed, empty list otherwise
+        - dict: Summary of verified content if validation passed, empty dict if failed
     """
     if not isinstance(df, pd.DataFrame):
         return False, ["Input must be a pandas DataFrame"], {}
@@ -32,32 +32,60 @@ def validate_dataframe(df: pd.DataFrame, expected_format: dict) -> Tuple[bool, L
     validation_rules = data_spec.get('validation_rules', {})
     errors = []
 
-    # Initialize summary dictionary
+    # Initialize summary dictionary (only used if validation passes)
     summary = {
         "verified_samples": [],
-        "aggregation_summary": {}
+        "aggregation_summary": {},
+        "column_analysis": {
+            "expected_columns": [],
+            "provided_columns": list(df.columns),
+            "missing_columns": [],
+            "unexpected_columns": [],
+            "possible_matches": {}
+        }
     }
 
-    # Validate columns presence
+    # Enhanced column validation
     if 'columns' in data_spec['data']:
-        missing_cols = set(data_spec['data']['columns']) - set(df.columns)
-        if missing_cols:
-            errors.append(f"Missing columns: {missing_cols}")
+        expected_cols = data_spec['data']['columns']
+        summary["column_analysis"]["expected_columns"] = expected_cols
 
-    # Validate dtypes
+        # Find missing and unexpected columns
+        missing_cols = set(expected_cols) - set(df.columns)
+        unexpected_cols = set(df.columns) - set(expected_cols)
+
+        if missing_cols or unexpected_cols:
+            if missing_cols:
+                errors.append(f"Missing required columns: {', '.join(missing_cols)}")
+            if unexpected_cols:
+                errors.append(f"Found unexpected columns: {', '.join(unexpected_cols)}")
+
+            # Only suggest matches if there are both missing and unexpected columns
+            if missing_cols and unexpected_cols:
+                for unexpected_col in unexpected_cols:
+                    for expected_col in missing_cols:
+                        if len(set(unexpected_col.lower()) & set(expected_col.lower())) > len(expected_col) / 2:
+                            errors.append(f"Column '{unexpected_col}' might be a misspelling of required column '{expected_col}'")
+
+    # If we already have errors, return early
+    if errors:
+        return False, errors, {}
+
+    # Validate dtypes for existing columns
     if 'dtypes' in data_spec['data']:
         for col, expected_dtype in data_spec['data']['dtypes'].items():
-            if col not in df.columns:
-                errors.append(f"Column {col} not found")
-                continue
-            if str(df[col].dtype) != expected_dtype:
-                errors.append(f"Column {col} has wrong dtype. Expected {expected_dtype}, got {df[col].dtype}")
+            if col in df.columns:
+                if str(df[col].dtype) != expected_dtype:
+                    errors.append(f"Column '{col}' has incorrect dtype. Expected {expected_dtype}, got {df[col].dtype}")
 
-    # Validate aggregation checks and collect summary
+    # If we have dtype errors, return early
+    if errors:
+        return False, errors, {}
+
+    # Validate aggregation checks
     if 'aggregation_checks' in data_spec['data']:
         agg_checks = data_spec['data']['aggregation_checks']
         round_decimals = validation_rules.get('round_decimals')
-
         agg_summary = {}
 
         # Check total rows
@@ -71,30 +99,28 @@ def validate_dataframe(df: pd.DataFrame, expected_format: dict) -> Tuple[bool, L
                 errors.append(f"DataFrame has {total_rows} rows, maximum allowed is {row_check['max']}")
 
         # Check sums
-        if 'sum' in agg_checks:
+        if 'sum' in agg_checks and not errors:  # Only check if no previous errors
             agg_summary['sums'] = agg_checks['sum']
             for col, expected_sum in agg_checks['sum'].items():
-                if col not in df.columns:
-                    errors.append(f"Column {col} not found for sum check")
-                    continue
                 actual_sum = round_down(df[col].sum(), round_decimals)
                 if actual_sum != expected_sum:
                     errors.append(f"Sum mismatch for column {col}. Expected {expected_sum}, got {actual_sum}")
 
         # Check means
-        if 'mean' in agg_checks:
+        if 'mean' in agg_checks and not errors:  # Only check if no previous errors
             agg_summary['means'] = agg_checks['mean']
             for col, expected_mean in agg_checks['mean'].items():
-                if col not in df.columns:
-                    errors.append(f"Column {col} not found for mean check")
-                    continue
                 actual_mean = round_down(df[col].mean(), round_decimals)
                 if actual_mean != expected_mean:
                     errors.append(f"Mean mismatch for column {col}. Expected {expected_mean}, got {actual_mean}")
 
         summary['aggregation_summary'] = agg_summary
 
-    # Validate sample rows and collect verified samples
+    # If we have aggregation errors, return early
+    if errors:
+        return False, errors, {}
+
+    # Validate sample rows
     if 'sample_rows' in data_spec['data']:
         threshold = validation_rules.get('row_match_threshold', 0.001)
         for i, sample in enumerate(data_spec['data']['sample_rows'], 1):
@@ -107,222 +133,28 @@ def validate_dataframe(df: pd.DataFrame, expected_format: dict) -> Tuple[bool, L
             filters = []
             for col, value in sample['filter'].items():
                 filters.append(df[col] == value)
-            filtered_df = df[pd.concat(filters, axis=1).any(axis=1)]
+            filtered_df = df[pd.concat(filters, axis=1).all(axis=1)]
 
             if filtered_df.empty:
                 errors.append(f"Sample {i}: No rows match filter {sample['filter']}")
-                continue
+                return False, errors, {}
 
-            all_rows_match = True
             for _, row in filtered_df.iterrows():
-                current_row_matches = True
                 for col, expected_val in sample['expected_values'].items():
                     actual_val = row[col]
                     if isinstance(expected_val, (int, float)) and isinstance(actual_val, (int, float)):
                         if abs(float(actual_val) - float(expected_val)) > threshold:
-                            current_row_matches = False
-                            break
-                    elif str(actual_val) != str(expected_val):
-                        current_row_matches = False
-                        break
-                if not current_row_matches:
-                    all_rows_match = False
-                    errors.append(f"Sample {i}: Row values don't match expected values for filter {sample['filter']}")
-                    break
+                            errors.append(f"Sample {i}: Value mismatch for column {col}. Expected {expected_val}, got {actual_val}")
+                            return False, errors, {}
 
-            if not all_rows_match:
-                errors.append(f"Sample {i}: No matching values found for filter {sample['filter']}")
+    # Only return the full summary if there are no errors
+    if errors:
+        return False, errors, {}
 
-    return len(errors) == 0, errors, summary
-
+    return True, [], summary
 
 class TestCaseValidator:
     TEST_CASES_URL = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/questions.json"
-
-    def _validate_aggregates(self, df: pd.DataFrame, agg_checks: Dict, validation_rules: Dict = None) -> Tuple[bool, List[str]]:
-        """
-        Validate DataFrame aggregate values.
-
-        Args:
-            df: DataFrame to validate
-            agg_checks: Dictionary containing aggregation checks
-            validation_rules: Dictionary containing validation rules including round_decimals
-
-        Returns:
-            Tuple of (bool, List[str]) indicating success and any error messages
-        """
-        errors = []
-        round_decimals = validation_rules.get('round_decimals') if validation_rules else None
-
-        # Check total rows
-        if "total_rows" in agg_checks:
-            row_check = agg_checks["total_rows"]
-            total_rows = len(df)
-            if "min" in row_check and total_rows < row_check["min"]:
-                errors.append(f"DataFrame has {total_rows} rows, minimum required is {row_check['min']}")
-            if "max" in row_check and total_rows > row_check["max"]:
-                errors.append(f"DataFrame has {total_rows} rows, maximum allowed is {row_check['max']}")
-
-        # Check column sums
-        if "sum" in agg_checks:
-            for col, expected_sum in agg_checks["sum"].items():
-                if col not in df.columns:
-                    errors.append(f"Column {col} not found for sum check")
-                    continue
-
-                actual_sum = df[col].sum()
-                if round_decimals is not None:
-                    actual_sum = round(actual_sum, round_decimals)
-                    # Ensure expected_sum has the same precision
-                    expected_sum = round(float(expected_sum), round_decimals)
-
-                if actual_sum != expected_sum:
-                    errors.append(f"Sum mismatch for column {col}. Expected {expected_sum}, got {actual_sum}")
-
-        # Check column means
-        if "mean" in agg_checks:
-            for col, expected_mean in agg_checks["mean"].items():
-                if col not in df.columns:
-                    errors.append(f"Column {col} not found for mean check")
-                    continue
-
-                actual_mean = df[col].mean()
-                if round_decimals is not None:
-                    actual_mean = round(actual_mean, round_decimals)
-                    # Ensure expected_mean has the same precision
-                    expected_mean = round(float(expected_mean), round_decimals)
-
-                if actual_mean != expected_mean:
-                    errors.append(f"Mean mismatch for column {col}. Expected {expected_mean}, got {actual_mean}")
-
-        return len(errors) == 0, errors
-
-    def _match_pattern(self, value: str, pattern: str) -> bool:
-        """Match string value against a regex pattern."""
-        try:
-            return bool(re.match(pattern, str(value)))
-        except re.error:
-            return False
-
-    def _check_value_range(self, value: Any, range_spec: Dict) -> bool:
-        """Check if value falls within specified range."""
-        if not isinstance(value, (int, float)):
-            return False
-
-        if "min" in range_spec and value < range_spec["min"]:
-            return False
-        if "max" in range_spec and value > range_spec["max"]:
-            return False
-        return True
-
-    def _filter_dataframe_row(self, df: pd.DataFrame, filter_conditions: Dict) -> pd.DataFrame:
-        """Filter DataFrame based on given conditions including pattern matching."""
-        query_parts = []
-
-        for col, condition in filter_conditions.items():
-            if isinstance(condition, dict):
-                if "pattern" in condition:
-                    mask = df[col].apply(lambda x: self._match_pattern(x, condition["pattern"]))
-                    df = df[mask]
-                elif "min" in condition or "max" in condition:
-                    if "min" in condition:
-                        df = df[df[col] >= condition["min"]]
-                    if "max" in condition:
-                        df = df[df[col] <= condition["max"]]
-            else:
-                query_parts.append(f'{col} == @condition')
-
-        if query_parts:
-            query = ' & '.join(query_parts)
-            return df.query(query)
-        return df
-
-    def _compare_row_values(self, row: pd.Series, expected_values: Dict,
-                            threshold: float = 0.001) -> bool:
-        """Compare a single row with expected values including range checks."""
-        for col, expected_val in expected_values.items():
-            if col not in row:
-                return False
-
-            actual_val = row[col]
-
-            # Handle range specifications
-            if isinstance(expected_val, dict) and ("min" in expected_val or "max" in expected_val):
-                if not self._check_value_range(actual_val, expected_val):
-                    return False
-            # Handle numeric comparisons
-            elif isinstance(expected_val, (int, float)) and isinstance(actual_val, (int, float)):
-                if abs(float(actual_val) - float(expected_val)) > threshold:
-                    return False
-            # Handle string comparisons
-            elif str(actual_val) != str(expected_val):
-                return False
-        return True
-
-    def _compare_dataframes(self, actual: pd.DataFrame, expected_dict: Dict,
-                          validation_rules: Dict = None) -> Tuple[bool, List[str]]:
-        """Compare DataFrame with enhanced validation including aggregates and patterns."""
-        if validation_rules is None:
-            validation_rules = {}
-
-        errors = []
-
-        try:
-            # Check columns
-            missing_cols = set(expected_dict["columns"]) - set(actual.columns)
-            if missing_cols:
-                errors.append(f"Missing columns: {missing_cols}")
-                return False, errors
-
-            # Check data types if specified
-            if "dtypes" in expected_dict:
-                for col, dtype in expected_dict["dtypes"].items():
-                    if str(actual[col].dtype) != dtype:
-                        errors.append(f"Column {col} has wrong dtype. Expected {dtype}, got {actual[col].dtype}")
-                        return False, errors
-
-            # Round decimals if specified
-            if validation_rules.get("round_decimals") is not None:
-                actual = actual.round(validation_rules["round_decimals"])
-
-            # Check aggregate values if specified
-            if "aggregation_checks" in expected_dict:
-                is_valid, agg_errors = self._validate_aggregates(actual, expected_dict["aggregation_checks"], validation_rules)
-                if not is_valid:
-                    errors.extend(agg_errors)
-                    return False, errors
-
-
-            # Check sample rows
-            threshold = validation_rules.get("row_match_threshold", 0.001)
-
-            for i, sample in enumerate(expected_dict["sample_rows"], 1):
-                # Filter the DataFrame for matching rows
-                filtered_df = self._filter_dataframe_row(actual, sample["filter"])
-
-                if filtered_df.empty:
-                    errors.append(f"Sample {i}: No rows match filter {sample['filter']}")
-                    return False, errors
-
-                # Check if any row matches the expected values
-                found_match = False
-                for _, row in filtered_df.iterrows():
-                    if self._compare_row_values(row, sample["expected_values"], threshold):
-                        found_match = True
-                        break
-
-                if not found_match:
-                    errors.append(
-                        f"Sample {i}: No matching values found for filter {sample['filter']}. "
-                        f"Expected values: {sample['expected_values']}"
-                    )
-                    return False, errors
-
-            return True, []
-
-        except Exception as e:
-            errors.append(f"Error comparing DataFrames: {str(e)}")
-            return False, errors
 
     def __init__(self, function_id: str):
         """Initialize validator with function_id and fetch relevant test cases."""
@@ -516,6 +348,7 @@ import requests
 import math
 import io
 import random
+import zipfile
 from collections import defaultdict
 {cleaned_text}
             """
@@ -534,20 +367,11 @@ from collections import defaultdict
                     if not isinstance(inputs, list):
                         inputs = [inputs]
 
-                    # Check requirements
-                    requirements = test_case.get("requirements", [])
-                    if requirements and not self.validate_requirements(cleaned_text, requirements):
-                        test_results.append({
-                            "testcase_id": test_case["testcase_id"],
-                            "passed": False,
-                            "expected": self._convert_to_serializable(test_case["expected"]),
-                            "actual": None,
-                            "error": "Code does not meet requirements"
-                        })
-                        continue
-
                     # Execute function and compare results
                     print(f"inputs: {inputs}")
+                    if "input_transformation" in test_case and test_case["input_transformation"]['input_type'] == "dataframe":
+                        df = pd.DataFrame(inputs[test_case["input_transformation"]['replace_index']])
+                        inputs[0] = df
                     result = func(*inputs)
                     passed, summary, errors = self.compare_outputs(
                         result,
@@ -555,11 +379,11 @@ from collections import defaultdict
                         test_case.get("output_type")
                     )
 
-                    if test_case["expected"]["type"] == "dataframe":
+                    if isinstance(result, pd.DataFrame) and test_case["expected"]["type"] == "dataframe":
                         test_results.append({
                             "testcase_id": test_case["testcase_id"],
                             "passed": passed,
-                            "expected": summary,
+                            "expected": test_case['expected'],
                             "actual": summary,
                             "error": errors
                         })
