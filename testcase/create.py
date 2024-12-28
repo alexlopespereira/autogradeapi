@@ -410,38 +410,34 @@ def morbidade_desagregado_6_8():
                     except pd.errors.ParserError:
                         print(f"Error parsing file: {filename}")
 
-        if all_dfs:
-            combined_df = pd.concat(all_dfs, ignore_index=True)
-            return combined_df
-        else:
-            return pd.DataFrame()  # Return an empty DataFrame if no data is found
+    combined_df = pd.concat(all_dfs, ignore_index=True)
 
     sample_rows = [
         {
             # First row to check
             "filter": {
-                "CodIBGE": "1100015",
+                "Município": "110001 Alta Floresta D'Oeste", "Data": "2019-12-01"
             },
             "expected_values": {
-                "2007": 191364
+                "Internações": 193
             }
         },
         {
             # First row to check
             "filter": {
-                "Município": "530010 Brasília"
+                "Município": "530010 Brasília", "Data": "2021-01-01"
             },
             "expected_values": {
-                "Internações": 20840
+                "Internações": 19145
             }
         }
     ]
 
     # Create test case
     test_case = create_test_case_specification(
-        groundtruth_df=df,
-        input_value=concatenated_df,
-        function_id="A6-E7",
+        groundtruth_df=combined_df,
+        input_value=url,
+        function_id="A6-E8",
         testcase_id="1",
         sample_rows=sample_rows,
         row_match_threshold=0.01
@@ -451,6 +447,6 @@ def morbidade_desagregado_6_8():
 
 if __name__ == "__main__":
     # Example usage
-    test_case = pibmunicipios_6_7() #create_grupo()
+    test_case = morbidade_desagregado_6_8() #create_grupo()
     print("Generated Test Case:")
     print(json.dumps(test_case).replace("\n",""))
