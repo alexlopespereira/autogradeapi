@@ -349,6 +349,7 @@ import math
 import io
 import random
 import zipfile
+import re
 from collections import defaultdict
 {cleaned_text}
             """

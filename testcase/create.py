@@ -369,35 +369,53 @@ def pibmunicipios_6_7():
 
 
 def morbidade_desagregado_6_8():
-    try:
-        repo_path = '../mba_enap/'  # Temporary directory for cloning
-        # Repo.clone_from(repo_url, repo_path)
-        data_dir = f'{repo_path}/data/originais/morbidade/desagregado'
-        all_data = []
-        for year_dir in ['2019', '2020', '2021']:
-            year_path = f'{data_dir}/{year_dir}'
-            import os
-            for filename in os.listdir(year_path):
-                if filename.endswith('.csv'):
-                    file_path = os.path.join(year_path, filename)
-                    try:
-                        df = pd.read_csv(file_path, encoding='iso8859-1', skiprows=3, sep=';', skipfooter=7, engine='python')
-                        all_data.append(df)
-                    except pd.errors.ParserError as e:
-                        print(f"Error parsing {filename}: {e}")
-                    except Exception as e:
-                        print(f"An unexpected error occurred while reading {filename}: {e}")
+    import requests
 
-        if not all_data:
-            print("No CSV files found in the specified directory.")
-            return None
-        concatenated_df = pd.concat(all_data, ignore_index=True)
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        return None
-    # finally:
-    #     import shutil
-        # shutil.rmtree('temp_repo', ignore_errors=True)  # Remove the temporary directory
+    url = "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/morbidade.zip"
+    response = requests.get(url)
+    response.raise_for_status()  # Raise an exception for bad status codes
+    from io import BytesIO
+    from zipfile import ZipFile
+    import re
+
+    with ZipFile(BytesIO(response.content)) as z:
+        all_dfs = []
+        for filename in z.namelist():
+            if filename.endswith(".csv"):
+                with z.open(filename) as f:
+                    try:
+                        df = pd.read_csv(f, encoding='iso8859-1', sep=';', skiprows=3, skipfooter=7, engine='python')
+                        # Extract month and year
+                        with z.open(filename) as file:
+                            lines = file.readlines()
+                            if len(lines) >= 3:
+                                third_line = lines[2].decode('iso8859-1').strip()
+                                match = re.search(r"Período:([a-zA-Z]{3})/(\d{4})", third_line)
+                                if match:
+                                    month_abbr = match.group(1)
+                                    year = int(match.group(2))
+                                    month_map = {
+                                        "Jan": 1, "Fev": 2, "Mar": 3, "Abr": 4, "Mai": 5, "Jun": 6,
+                                        "Jul": 7, "Ago": 8, "Set": 9, "Out": 10, "Nov": 11, "Dez": 12
+                                    }
+                                    month = month_map.get(month_abbr)
+
+                                    df['mes'] = month
+                                    df['ano'] = year
+
+                                    df['Data'] = pd.to_datetime({'year': df['ano'], 'month': df['mes'], 'day': 1})
+                                    all_dfs.append(df)
+                            else:
+                                print(f"File {filename} has less than 3 lines.")
+                    except pd.errors.ParserError:
+                        print(f"Error parsing file: {filename}")
+
+        if all_dfs:
+            combined_df = pd.concat(all_dfs, ignore_index=True)
+            return combined_df
+        else:
+            return pd.DataFrame()  # Return an empty DataFrame if no data is found
+
     sample_rows = [
         {
             # First row to check
