@@ -63,7 +63,7 @@ flow = Flow.from_client_config(
     redirect_uri="https://seal-app-pmncf.ondigitalocean.app/callback"
 )
 
-FORBIDDEN_KEYWORDS = ["open", "eval", "exec", "os", "sys", "subprocess"]
+FORBIDDEN_KEYWORDS = ["eval", "exec", "os", "sys", "subprocess"]
 
 def analyze_code_safety(code):
     """Analyze code for potential security issues."""
