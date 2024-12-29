@@ -468,45 +468,41 @@ def morbidade_desagregado_6_8():
 
 
 def merge_pib_pop():
-    path_pib = 'https://github.com/alexlopespereira/mba_enap/raw/main/data/originais/pib/pib_municipios.xlsx'
-    path_pop = 'https://github.com/alexlopespereira/mba_enap/raw/main/data/originais/populacao/POP2024_20241101.xls'
+    pop_url = 'https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/populacao/estimativa_dou_2017.xlsx'
+    pib_url = 'https://github.com/alexlopespereira/mba_enap/raw/main/data/originais/pib/pib_municipios.xlsx'
 
-    df_pop = pd.read_excel(path_pop, sheet_name="MUNICÍPIOS", skiprows=1, dtype={'COD. UF': str, 'COD. MUNIC': str})
-    df_pop = df_pop.iloc[:, :-1]  # Remove a última coluna
-    df_pop = df_pop.rename(columns={df_pop.columns[-2]: 'MUNICIPIO', df_pop.columns[-1]: 'POPULACAO'})
-    df_pop['cod_ibge7'] = df_pop['COD. UF'] + df_pop['COD. MUNIC']
-    df_pop = df_pop[:-40]
-
-    df_pib = pd.read_excel(path_pib, skipfooter=1, dtype={'CodIBGE': str})
-
-    dfr = pd.merge(df_pop, df_pib, left_on='cod_ibge7', right_on='CodIBGE')
-
+    df_pop = pd.read_excel(pop_url, dtype={'cod_ibge': str})
+    df_pib = pd.read_excel(pib_url, skipfooter=1, dtype={'CodIBGE': str})
+    df_merged = pd.merge(df_pop, df_pib, left_on='cod_ibge', right_on='CodIBGE')
+    df_merged['pib_percapita'] = df_merged['2017'] / df_merged['pop2017']
+    df_merged['pib_percapita'] = df_merged['pib_percapita'].apply(lambda x: float(f'{x:.1f}'))
+    top_10_pib_percapita = df_merged.nlargest(10, 'pib_percapita')
     sample_rows = [
         {
             # First row to check
             "filter": {
-                "cod_ibge7": "5300108"
+                "cod_ibge": "3536505"
             },
             "expected_values": {
-                "2017": 244682756
+                "pib_percapita": 344.8
             }
         },
         {
             # First row to check
             "filter": {
-                "cod_ibge7": "1100015"
+                "cod_ibge": "3524709"
             },
             "expected_values": {
-                "2017": 498864
+                "pib_percapita": 209.3
             }
         }
     ]
 
     # Create test case
     test_case = create_test_case_specification(
-        groundtruth_df=dfr,
-        input_value=[path_pop, path_pib],
-        function_id="A7-E1",
+        groundtruth_df=top_10_pib_percapita,
+        input_value=[pop_url, pib_url],
+        function_id="A7-E3",
         testcase_id="1",
         sample_rows=sample_rows,
         row_match_threshold=0.01
@@ -520,6 +516,6 @@ def merge_pib_pop():
 
 if __name__ == "__main__":
     # Example usage
-    test_case = morbidade_desagregado_6_8() #create_grupo()
+    test_case = merge_pib_pop() #create_grupo()
     print("Generated Test Case:")
     print(json.dumps(test_case).replace("\n",""))
