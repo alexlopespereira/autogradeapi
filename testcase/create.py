@@ -371,8 +371,29 @@ def pibmunicipios_6_7():
 def morbidade_desagregado_6_8():
     import requests
 
-    url = "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/morbidade.zip"
-    response = requests.get(url)
+    urls = [
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2019/A002344189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2019/A212356189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2019/A212407189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A002126189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A102654189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A102744189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A102812189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A102850189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A102927189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A103139189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A103238189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A212148189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A212323189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A212334189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2021//A212345189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2021/A152003189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2021/A152053189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2021/A152118189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2021/A152142189_28_143_208.csv",
+        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2021/A152222189_28_143_208.csv"
+    ]
+    response = requests.get(urls)
     response.raise_for_status()  # Raise an exception for bad status codes
     from io import BytesIO
     from zipfile import ZipFile
@@ -436,7 +457,7 @@ def morbidade_desagregado_6_8():
     # Create test case
     test_case = create_test_case_specification(
         groundtruth_df=combined_df,
-        input_value=url,
+        input_value=urls,
         function_id="A6-E8",
         testcase_id="1",
         sample_rows=sample_rows,
@@ -444,6 +465,58 @@ def morbidade_desagregado_6_8():
     )
 
     return test_case
+
+
+def merge_pib_pop():
+    path_pib = 'https://github.com/alexlopespereira/mba_enap/raw/main/data/originais/pib/pib_municipios.xlsx'
+    path_pop = 'https://github.com/alexlopespereira/mba_enap/raw/main/data/originais/populacao/POP2024_20241101.xls'
+
+    df_pop = pd.read_excel(path_pop, sheet_name="MUNICÍPIOS", skiprows=1, dtype={'COD. UF': str, 'COD. MUNIC': str})
+    df_pop = df_pop.iloc[:, :-1]  # Remove a última coluna
+    df_pop = df_pop.rename(columns={df_pop.columns[-2]: 'MUNICIPIO', df_pop.columns[-1]: 'POPULACAO'})
+    df_pop['cod_ibge7'] = df_pop['COD. UF'] + df_pop['COD. MUNIC']
+    df_pop = df_pop[:-40]
+
+    df_pib = pd.read_excel(path_pib, skipfooter=1, dtype={'CodIBGE': str})
+
+    dfr = pd.merge(df_pop, df_pib, left_on='cod_ibge7', right_on='CodIBGE')
+
+    sample_rows = [
+        {
+            # First row to check
+            "filter": {
+                "cod_ibge7": "5300108"
+            },
+            "expected_values": {
+                "2017": 244682756
+            }
+        },
+        {
+            # First row to check
+            "filter": {
+                "cod_ibge7": "1100015"
+            },
+            "expected_values": {
+                "2017": 498864
+            }
+        }
+    ]
+
+    # Create test case
+    test_case = create_test_case_specification(
+        groundtruth_df=dfr,
+        input_value=[path_pop, path_pib],
+        function_id="A7-E1",
+        testcase_id="1",
+        sample_rows=sample_rows,
+        row_match_threshold=0.01
+    )
+
+    return test_case
+
+
+
+
 
 if __name__ == "__main__":
     # Example usage

@@ -10,21 +10,51 @@ def call_python_mockup():
 
     # Test function that returns a DataFrame
     test_code = """
-def ler_arquivo_excel(caminho):
-    df = pd.read_excel(caminho)
-    df = df.iloc[:-1]
-    df['Unnamed: 1'] = df['Unnamed: 1'].astype(str)
-    df = df.rename(columns={
-        'Unnamed: 0': 'nivel',
-        'Unnamed: 1': 'cod_ibge7',
-        'Unnamed: 2': 'municipio'
-    })
-    return df
+def carregar_e_extraire_dados(url):
+    # Baixar o arquivo zip da URL
+    resposta = requests.get(url)
+    zip_file = zipfile.ZipFile(io.BytesIO(resposta.content))
+
+    # Inicializar uma lista para armazenar dataframes
+    lista_dataframes = []
+
+    # Iterar por cada arquivo no arquivo zip
+    for nome_arquivo in zip_file.namelist():
+        if nome_arquivo.endswith('.csv'):
+            with zip_file.open(nome_arquivo) as file:
+                # Ler o arquivo CSV, pulando as 3 primeiras linhas
+                df = pd.read_csv(file, skiprows=3, sep=';', encoding='iso8859-1', skipfooter=7, engine='python')
+
+                # Extrair o padrão específico da 3ª linha para mês e ano
+                with zip_file.open(nome_arquivo) as file:
+                    linhas = file.readlines()
+                    if len(linhas) >= 3:
+                        linha_3 = linhas[2].decode('iso8859-1').strip()
+                        if linha_3.startswith("Período:"):
+                            # Extraindo mês e ano
+                            if ";;;;;;;;;" in linha_3:
+                                mes_ano = linha_3.split(":")[1].split(";;;;;;;")[0].strip()
+                            else:
+                                mes_ano = linha_3.split(":")[1].strip()
+                            mes, ano = mes_ano.split("/")
+                            # Adicionando colunas ao dataframe
+                            df['mes'] = int(mes)
+                            df['ano'] = int(ano)
+                            # Criar a coluna Data
+                            df['Data'] = pd.to_datetime(df['ano'].astype(str) + '-' + df['mes'].astype(str) + '-01')
+
+                            # Adicionar o dataframe à lista
+                            lista_dataframes.append(df)
+
+    # Concatenar todos os dataframes em um único
+    dataframe_final = pd.concat(lista_dataframes, ignore_index=True)
+
+    return dataframe_final
 """
 
     payload = {
         "code": test_code,
-        "function_id": "A6-E7"
+        "function_id": "A6-E8"
     }
 
     with app.test_request_context(

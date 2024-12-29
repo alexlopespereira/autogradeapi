@@ -347,6 +347,7 @@ import numpy as np
 import requests
 import math
 import io
+from io import BytesIO
 import random
 import zipfile
 import re
