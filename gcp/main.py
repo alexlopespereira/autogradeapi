@@ -136,7 +136,7 @@ def validate_dataframe(df: pd.DataFrame, expected_format: dict) -> Tuple[bool, L
             filtered_df = df[pd.concat(filters, axis=1).all(axis=1)]
 
             if filtered_df.empty:
-                errors.append(f"Sample {i}: No rows match filter {sample['filter']}")
+                errors.append(f"Sample {i}: No rows match filter {sample['filter']} and expected values {sample['expected_values']}")
                 return False, errors, {}
 
             for _, row in filtered_df.iterrows():
@@ -350,6 +350,8 @@ import io
 from io import BytesIO
 import random
 import zipfile
+import datetime
+from datetime import date, timedelta
 import re
 from collections import defaultdict
 {cleaned_text}
@@ -404,7 +406,7 @@ from collections import defaultdict
                         "passed": False,
                         "expected": self._convert_to_serializable(test_case["expected"]),
                         "actual": None,
-                        "error": str(e)
+                        "error": f"Error while running your function: {str(e)}"
                     })
 
             # Calculate summary statistics
