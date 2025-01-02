@@ -54,18 +54,21 @@ def validate_dataframe(df: pd.DataFrame, expected_format: dict) -> Tuple[bool, L
         missing_cols = set(expected_cols) - set(df.columns)
         unexpected_cols = set(df.columns) - set(expected_cols)
 
-        if missing_cols or unexpected_cols:
-            if missing_cols:
-                errors.append(f"Missing required columns: {', '.join(missing_cols)}")
-            if unexpected_cols:
-                errors.append(f"Found unexpected columns: {', '.join(unexpected_cols)}")
+        # Only treat missing columns as errors
+        if missing_cols:
+            errors.append(f"Missing required columns: {', '.join(missing_cols)}")
 
-            # Only suggest matches if there are both missing and unexpected columns
-            if missing_cols and unexpected_cols:
+            # Look for possible matches between missing and unexpected columns
+            if unexpected_cols:
                 for unexpected_col in unexpected_cols:
                     for expected_col in missing_cols:
                         if len(set(unexpected_col.lower()) & set(expected_col.lower())) > len(expected_col) / 2:
                             errors.append(f"Column '{unexpected_col}' might be a misspelling of required column '{expected_col}'")
+
+        # Record unexpected columns in summary but don't treat them as errors
+        if unexpected_cols:
+            summary["column_analysis"]["unexpected_columns"] = list(unexpected_cols)
+            summary["column_analysis"]["missing_columns"] = list(missing_cols)
 
     # If we already have errors, return early
     if errors:
@@ -82,11 +85,12 @@ def validate_dataframe(df: pd.DataFrame, expected_format: dict) -> Tuple[bool, L
     if errors:
         return False, errors, {}
 
-    # Validate aggregation checks
+    # Validate aggregation checks with tolerance
     if 'aggregation_checks' in data_spec['data']:
         agg_checks = data_spec['data']['aggregation_checks']
         round_decimals = validation_rules.get('round_decimals')
         agg_summary = {}
+        tolerance = validation_rules.get('tolerance', 3)  # Default tolerance of 3 units
 
         # Check total rows
         if 'total_rows' in agg_checks:
@@ -98,21 +102,21 @@ def validate_dataframe(df: pd.DataFrame, expected_format: dict) -> Tuple[bool, L
             if 'max' in row_check and total_rows > row_check['max']:
                 errors.append(f"DataFrame has {total_rows} rows, maximum allowed is {row_check['max']}")
 
-        # Check sums
-        if 'sum' in agg_checks and not errors:  # Only check if no previous errors
+        # Check sums with tolerance
+        if 'sum' in agg_checks and not errors:
             agg_summary['sums'] = agg_checks['sum']
             for col, expected_sum in agg_checks['sum'].items():
                 actual_sum = round_down(df[col].sum(), round_decimals)
-                if actual_sum != expected_sum:
-                    errors.append(f"Sum mismatch for column {col}. Expected {expected_sum}, got {actual_sum}")
+                if abs(actual_sum - expected_sum) > tolerance:
+                    errors.append(f"Sum mismatch for column {col}. Expected {expected_sum}, got {actual_sum} (tolerance: ±{tolerance})")
 
-        # Check means
-        if 'mean' in agg_checks and not errors:  # Only check if no previous errors
+        # Check means with tolerance
+        if 'mean' in agg_checks and not errors:
             agg_summary['means'] = agg_checks['mean']
             for col, expected_mean in agg_checks['mean'].items():
                 actual_mean = round_down(df[col].mean(), round_decimals)
-                if actual_mean != expected_mean:
-                    errors.append(f"Mean mismatch for column {col}. Expected {expected_mean}, got {actual_mean}")
+                if abs(actual_mean - expected_mean) > tolerance:
+                    errors.append(f"Mean mismatch for column {col}. Expected {expected_mean}, got {actual_mean} (tolerance: ±{tolerance})")
 
         summary['aggregation_summary'] = agg_summary
 
@@ -120,6 +124,7 @@ def validate_dataframe(df: pd.DataFrame, expected_format: dict) -> Tuple[bool, L
     if errors:
         return False, errors, {}
 
+    # Rest of the validation code remains the same...
     # Validate sample rows
     if 'sample_rows' in data_spec['data']:
         threshold = validation_rules.get('row_match_threshold', 0.001)

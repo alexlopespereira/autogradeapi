@@ -10,29 +10,29 @@ def call_python_mockup():
 
     # Test function that returns a DataFrame
     test_code = """
-def process_dates(date_dict):
-    # Criar um dataframe a partir do dicionário
-    df = pd.DataFrame(date_dict)
+def process_morbidade_data(caminho_arquivo):
+    df_morbidade = pd.read_csv(caminho_arquivo, sep=";", na_values=['-', '...'], decimal=',', dtype={'cod_ibge6': str}, index_col=0)
     
-    # Converter as colunas de data para o formato datetime
-    df['Start Date'] = pd.to_datetime(df['Start Date'])
-    df['End Date'] = pd.to_datetime(df['End Date'])
+    df_morbidade['uf'] = df_morbidade['cod_ibge6'].str[:2]
     
-    # Calcular a diferença em dias entre as colunas 'End Date' e 'Start Date'
-    df['Difference'] = (df['End Date'] - df['Start Date']).dt.days
+    agg_df = df_morbidade.groupby(['uf', 'cod_ibge6', 'Município']).agg({
+        'Valor_total': 'sum',
+        'Internações': 'sum',
+        'Dias_permanência': 'sum'
+    }).reset_index(drop=False)
     
-    # Filtrar as linhas onde a diferença é maior que 10 dias
-    result_df = df[df['Difference'] > 10]
+    agg_df['Valor_total'] = agg_df['Valor_total'].round().astype('int64')
+    agg_df['Internações'] = agg_df['Internações'].round().astype('int64')
+    agg_df['Dias_permanência'] = agg_df['Dias_permanência'].round().astype('int64')
     
-    # Aplicar o método reset_index
-    result_df.reset_index(drop=False, inplace=True)
+    agg_df['custo_medio_diario_intern'] = agg_df['Valor_total'] / agg_df['Dias_permanência']
     
-    return result_df
+    return agg_df.nlargest(5, 'custo_medio_diario_intern')
 """
 
     payload = {
         "code": test_code,
-        "function_id": "A8-E7"
+        "function_id": "A9-E3"
     }
 
     with app.test_request_context(
