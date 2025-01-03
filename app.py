@@ -80,9 +80,9 @@ def analyze_code_safety(code):
     except SyntaxError as e:
         print(str(e))
         if "unterminated string literal" in str(e):
-            pass
+            return True, None
         return False, f"Syntax error in code: {e}"
-    return True, None
+    
 
 
 def prompt_completion(user_prompt):
