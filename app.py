@@ -243,11 +243,16 @@ def validate_student_code():
             "function_id": function_id
         })
 
+        print(result)
         timestamp = datetime.now().isoformat()
         submission_id = f"{email}_{function_id}"
-        error_message = result["error"]
+        error_message = result.get("error", None)
 
-        passed = all(test["passed"] for test in result["test_results"])
+        passed = False
+        if "test_results" in result and result["test_results"]:
+            passed = all(test.get("passed", False) for test in result["test_results"])
+        
+        print(passed, timestamp, email, course, function_id, submission_id, error_message)
         log_to_sheets([
             timestamp,
             email,
