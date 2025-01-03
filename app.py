@@ -198,6 +198,7 @@ def validate_student_code():
     user_prompt = data["prompt"]
     function_id = data["function_id"]
     user_email = data["user_email"]
+    course = data["course"]
 
     try:
         # Generate code from prompt
