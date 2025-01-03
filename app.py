@@ -2,7 +2,7 @@ import json
 import os
 import re
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, session
 import ast
 from openai import OpenAI
@@ -28,6 +28,7 @@ class UTF8JSONProvider(JSONProvider):
 
 users_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/users.json"
 courses_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/courses.json"
+deadlines_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/deadlines.json"  # Update with actual URL
 
 def fetch_json(url):
     response = requests.get(url)
@@ -37,6 +38,7 @@ def fetch_json(url):
 try:
     users_data = fetch_json(users_url)
     courses_data = fetch_json(courses_url)
+    deadlines_data = fetch_json(deadlines_url)
 
     valid_courses = courses_data.get("courses", [])
     authorized_users = set()
@@ -159,6 +161,34 @@ def log_to_sheets(row_data):
         print(f"Error logging to sheets: {str(e)}")
 
 
+def check_deadline(function_id, submission_time):
+    """Check if submission is within deadline"""
+    try:
+        deadline_info = next(
+            (d for d in deadlines_data.get("deadlines", []) if d["function_id"] == function_id),
+            None
+        )
+        
+        if not deadline_info:
+            return True, "No deadline specified"
+            
+        # Parse timezone offset
+        timezone_str = deadline_info.get("timezone", "UTC-0")
+        timezone_offset = int(timezone_str.replace("UTC", ""))
+        
+        # Convert deadline to UTC
+        deadline = datetime.fromisoformat(deadline_info["deadline"])
+        deadline = deadline + timedelta(hours=timezone_offset)  # Convert to UTC
+        
+        # Convert submission time to UTC (assuming it's already in UTC)
+        submission = datetime.fromisoformat(submission_time)
+        
+        return submission <= deadline, f"{deadline_info['deadline']} {timezone_str}"
+    except Exception as e:
+        print(f"Error checking deadline: {e}")
+        return True, "Error checking deadline"
+
+
 @app.route('/api/validate', methods=['POST'])
 def validate_student_code():
     # Validate authorization
@@ -256,6 +286,9 @@ def validate_student_code():
         if "test_results" in result and result["test_results"]:
             passed = all(test.get("passed", False) for test in result["test_results"])
         
+        # Add deadline check
+        within_deadline, deadline = check_deadline(function_id, timestamp)
+        
         class_number, exercise_number = function_id.split("-")
         print(passed, timestamp, email, course, class_number, exercise_number, submission_id, error_message)
         log_to_sheets([
@@ -266,6 +299,8 @@ def validate_student_code():
             exercise_number,
             submission_id,
             str(passed),
+            str(within_deadline),  # Add deadline status
+            deadline,              # Add deadline timestamp
             error_message or "None"
         ])
         
