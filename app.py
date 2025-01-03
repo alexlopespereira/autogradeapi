@@ -80,7 +80,7 @@ def analyze_code_safety(code):
                     return False, f"Use of '{node.func.id}' is not allowed."
         return True, None
     except SyntaxError as e:
-        print(str(e))
+        #print(str(e))
         if "unterminated string literal" in str(e):
             return True, None
         return False, f"Syntax error in code: {e}"
@@ -131,7 +131,7 @@ def log_to_sheets(row_data):
 
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
     SPREADSHEET_ID = '1IwvQoqdMUklaw5P2CZH7YWKdeZhhehJljd1TdI0RDP0'  # Replace with your spreadsheet ID
-    RANGE_NAME = 'Sheet1!A:G'  # Adjust based on your sheet name and columns
+    RANGE_NAME = 'Sheet1!A:J'  # Adjust based on your sheet name and columns
 
     try:
         # Load credentials from service account file
@@ -161,16 +161,19 @@ def log_to_sheets(row_data):
         print(f"Error logging to sheets: {str(e)}")
 
 
-def check_deadline(function_id, submission_time):
+def check_deadline(function_id, submission_time, course):
     """Check if submission is within deadline"""
     try:
+        # Get deadlines for the specific course
+        course_deadlines = deadlines_data.get(course, {}).get("deadlines", [])
+        
         deadline_info = next(
-            (d for d in deadlines_data.get("deadlines", []) if d["function_id"] == function_id),
+            (d for d in course_deadlines if d["function_id"] == function_id),
             None
         )
         
         if not deadline_info:
-            return True, "No deadline specified"
+            return True, f"No deadline specified for {course} - {function_id}"
             
         # Parse timezone offset
         timezone_str = deadline_info.get("timezone", "UTC-0")
@@ -287,7 +290,7 @@ def validate_student_code():
             passed = all(test.get("passed", False) for test in result["test_results"])
         
         # Add deadline check
-        within_deadline, deadline = check_deadline(function_id, timestamp)
+        within_deadline, deadline = check_deadline(function_id, timestamp, course)
         
         class_number, exercise_number = function_id.split("-")
         print(passed, timestamp, email, course, class_number, exercise_number, submission_id, error_message)
