@@ -81,6 +81,7 @@ def analyze_code_safety(code):
         if "unterminated string literal" in str(e):
             pass
         return False, f"Syntax error in code: {e}"
+    return True, None
 
 def prompt_completion(user_prompt):
     """Generate code using OpenAI API based on user prompt."""
