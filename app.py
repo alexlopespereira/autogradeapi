@@ -256,12 +256,14 @@ def validate_student_code():
         if "test_results" in result and result["test_results"]:
             passed = all(test.get("passed", False) for test in result["test_results"])
         
-        print(passed, timestamp, email, course, function_id, submission_id, error_message)
+        class_number, exercise_number = function_id.split("-")
+        print(passed, timestamp, email, course, class_number, exercise_number, submission_id, error_message)
         log_to_sheets([
             timestamp,
             email,
             course,
-            function_id,
+            class_number,
+            exercise_number,
             submission_id,
             str(passed),
             error_message or "None"
