@@ -2,6 +2,7 @@ import json
 import os
 import re
 import requests
+from datetime import datetime
 from flask import Flask, request, jsonify, session
 import ast
 from openai import OpenAI
@@ -241,6 +242,21 @@ def validate_student_code():
             "user_email": user_email,
             "function_id": function_id
         })
+
+        timestamp = datetime.now().isoformat()
+        submission_id = f"{email}_{function_id}"
+        error_message = result["error"]
+
+        passed = all(test["passed"] for test in result["test_results"])
+        log_to_sheets([
+            timestamp,
+            email,
+            course,
+            function_id,
+            submission_id,
+            str(passed),
+            error_message or "None"
+        ])
         
         return jsonify(result)
 
