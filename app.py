@@ -244,7 +244,7 @@ def validate_student_code():
         })
 
         print(result)
-        timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")
+        timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         submission_id = f"{email}_{function_id}"
         error_message = result.get("error", None)
 
