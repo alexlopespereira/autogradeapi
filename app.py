@@ -222,7 +222,7 @@ def validate_student_code():
 
     # Validate request data
     data = request.get_json()
-    if not data or "prompt" not in data or "function_id" not in data or "user_email" not in data:
+    if not data or "prompt" not in data or "function_id" not in data or "user_email" not in data or "course" not in data:
         return jsonify({"error": "Invalid request format"}), 400
 
     user_prompt = data["prompt"]
