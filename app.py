@@ -9,6 +9,7 @@ from flask.json.provider import JSONProvider
 from google.oauth2 import service_account
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import Flow
+from googleapiclient.discovery import build
 
 
 class UTF8JSONProvider(JSONProvider):
@@ -113,6 +114,46 @@ def prompt_completion(user_prompt):
         print(f"o1-mini: {generated_code}")
     
     return re.sub(r"^python\s*", "", generated_code)
+
+
+
+def log_to_sheets(row_data):
+    """
+    Logs a row of data to Google Sheets
+    """
+    submission_credentials = json.loads(os.environ.get('GOOGLE_SUBMISSION_CREDENTIALS'))
+
+    SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+    SPREADSHEET_ID = '1IwvQoqdMUklaw5P2CZH7YWKdeZhhehJljd1TdI0RDP0'  # Replace with your spreadsheet ID
+    RANGE_NAME = 'Sheet1!A:G'  # Adjust based on your sheet name and columns
+
+    try:
+        # Load credentials from service account file
+        creds = service_account.Credentials.from_service_account_info(
+           info=submission_credentials,  # Replace with path to your credentials file
+           scopes=SCOPES
+        )
+
+        # Build the Sheets API service
+        service = build('sheets', 'v4', credentials=creds)
+
+        # Prepare the request body
+        body = {
+            'values': [row_data]
+        }
+
+        # Append the row to the sheet
+        service.spreadsheets().values().append(
+            spreadsheetId=SPREADSHEET_ID,
+            range=RANGE_NAME,
+            valueInputOption='RAW',
+            insertDataOption='INSERT_ROWS',
+            body=body
+        ).execute()
+
+    except Exception as e:
+        print(f"Error logging to sheets: {str(e)}")
+
 
 @app.route('/api/validate', methods=['POST'])
 def validate_student_code():
