@@ -78,10 +78,12 @@ def analyze_code_safety(code):
                     return False, f"Use of '{node.func.id}' is not allowed."
         return True, None
     except SyntaxError as e:
+        print(str(e))
         if "unterminated string literal" in str(e):
             pass
         return False, f"Syntax error in code: {e}"
     return True, None
+
 
 def prompt_completion(user_prompt):
     """Generate code using OpenAI API based on user prompt."""
