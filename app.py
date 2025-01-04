@@ -164,16 +164,19 @@ def log_to_sheets(row_data):
 def check_deadline(function_id, submission_time, course):
     """Check if submission is within deadline"""
     try:
+        # Extract class day from function_id (e.g., "A2" from "A2_E6")
+        class_day = function_id.split("_")[0]
+        
         # Get deadlines for the specific course
         course_deadlines = deadlines_data.get(course, {}).get("deadlines", [])
         
         deadline_info = next(
-            (d for d in course_deadlines if d["function_id"] == function_id),
+            (d for d in course_deadlines if d["class_day"] == class_day),
             None
         )
         
         if not deadline_info:
-            return True, f"No deadline specified for {course} - {function_id}"
+            return True, f"No deadline specified for {course} - {class_day}"
             
         # Parse timezone offset
         timezone_str = deadline_info.get("timezone", "UTC-0")
