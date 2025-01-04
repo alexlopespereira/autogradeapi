@@ -130,13 +130,13 @@ def log_to_sheets(row_data):
     submission_credentials = json.loads(os.environ.get('GOOGLE_SUBMISSION_CREDENTIALS'))
 
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-    SPREADSHEET_ID = '1IwvQoqdMUklaw5P2CZH7YWKdeZhhehJljd1TdI0RDP0'  # Replace with your spreadsheet ID
-    RANGE_NAME = 'Sheet1!A:J'  # Adjust based on your sheet name and columns
+    SPREADSHEET_ID = '1IwvQoqdMUklaw5P2CZH7YWKdeZhhehJljd1TdI0RDP0'
+    RANGE_NAME = 'Sheet1!A1:J'
 
     try:
         # Load credentials from service account file
         creds = service_account.Credentials.from_service_account_info(
-           info=submission_credentials,  # Replace with path to your credentials file
+           info=submission_credentials,
            scopes=SCOPES
         )
 
