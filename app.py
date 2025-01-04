@@ -174,7 +174,7 @@ def check_deadline(function_id, submission_time, course):
             (d for d in course_deadlines if d["class_day"] == class_day),
             None
         )
-        print(class_day, deadline_info)
+        print(f"class_day={class_day}, deadline_info={deadline_info}")
         
         if not deadline_info:
             return True, f"No deadline specified for {course} - {class_day}"
