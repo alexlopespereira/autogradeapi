@@ -131,7 +131,7 @@ def log_to_sheets(row_data):
 
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
     SPREADSHEET_ID = '1IwvQoqdMUklaw5P2CZH7YWKdeZhhehJljd1TdI0RDP0'
-    RANGE_NAME = 'records!A:J'
+    RANGE_NAME = 'records!A:K'
 
     try:
         # Load credentials from service account file
@@ -304,7 +304,8 @@ def validate_student_code():
             str(passed),
             str(within_deadline),  # Add deadline status
             deadline,              # Add deadline timestamp
-            error_message or "None"
+            error_message or "None",
+            f"{email}_{function_id}_{timestamp}"
         ])
         
         return jsonify(result)
