@@ -165,7 +165,7 @@ def check_deadline(function_id, submission_time, course):
     """Check if submission is within deadline"""
     try:
         # Extract class day from function_id (e.g., "A2" from "A2_E6")
-        class_day = function_id.split("_")[0]
+        class_day = function_id.split("-")[0]
         
         # Get deadlines for the specific course
         course_deadlines = deadlines_data.get(course, {}).get("deadlines", [])
