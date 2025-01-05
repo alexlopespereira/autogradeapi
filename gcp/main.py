@@ -309,7 +309,12 @@ class TestCaseValidator:
 
     def _convert_to_serializable(self, obj):
         """Convert objects to JSON-serializable format."""
-        if isinstance(obj, pd.DataFrame):
+        if isinstance(obj, dict):
+            # Check for integer keys
+            if any(isinstance(k, int) for k in obj.keys()):
+                raise ValueError("Integer keys are not accepted in dictionaries. All keys must be strings.")
+            return {k: self._convert_to_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, pd.DataFrame):
             return obj.to_dict(orient='records')
         elif isinstance(obj, pd.Series):
             return obj.to_dict()
@@ -319,12 +324,10 @@ class TestCaseValidator:
             return int(obj)
         elif isinstance(obj, (np.float64, np.float32)):
             return float(obj)
-        elif isinstance(obj, dict):
-            return {k: self._convert_to_serializable(v) for k, v in obj.items()}
         elif isinstance(obj, list):
             return [self._convert_to_serializable(item) for item in obj]
         elif isinstance(obj, (set, tuple)):
-            return list(obj)
+            raise ValueError("Tuples and sets cannot be serialized. Please explicitly convert to a list before returning.")
         return obj
 
 
@@ -353,6 +356,7 @@ import requests
 import math
 import io
 from io import BytesIO
+from io import StringIO
 import random
 import zipfile
 import datetime
@@ -392,8 +396,8 @@ from collections import defaultdict
                         test_results.append({
                             "testcase_id": test_case["testcase_id"],
                             "passed": passed,
-                            "expected": test_case['expected'],
-                            "actual": summary,
+                            "expected": test_case["expected"],
+                            "actual": self._convert_to_serializable(summary),
                             "error": errors
                         })
                     else:
@@ -401,11 +405,12 @@ from collections import defaultdict
                             "testcase_id": test_case["testcase_id"],
                             "passed": passed,
                             "expected": test_case["expected"],
-                            "actual": result,
+                            "actual": self._convert_to_serializable(result),
                             "error": None
                         })
 
                 except Exception as e:
+                    print(f"Error while running your function: {str(e)}")
                     test_results.append({
                         "testcase_id": test_case["testcase_id"],
                         "passed": False,

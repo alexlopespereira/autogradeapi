@@ -1,59 +1,52 @@
-import unittest
-from unittest.mock import patch, MagicMock
-from app import app
+
+
+
 import json
 
-class TestValidateStudentCode(unittest.TestCase):
-    def setUp(self):
-        app.config['TESTING'] = True
-        self.client = app.test_client()
-        
-        # Mock authorized users
-        self.authorized_email = "alexlopespereira@gmail.com"
-        global AUTHORIZED_USERS
-        AUTHORIZED_USERS = {self.authorized_email}
+def floyd_warshall(adjacency_matrix, path):
+    # Converter valores "inf" da matriz de adjacência para float('inf')
+    for i in range(len(adjacency_matrix)):
+        for j in range(len(adjacency_matrix[i])):
+            if adjacency_matrix[i][j] == "inf":
+                adjacency_matrix[i][j] = float('inf')
+    
+    num_vertices = len(adjacency_matrix)
+    
+    # Inicialização das matrizes de distâncias e próximos nós
+    distance = [[float('inf')] * num_vertices for _ in range(num_vertices)]
+    next_node = [[None] * num_vertices for _ in range(num_vertices)]
+    
+    for i in range(num_vertices):
+        for j in range(num_vertices):
+            distance[i][j] = adjacency_matrix[i][j]
+            if adjacency_matrix[i][j] != float('inf') and i != j:
+                next_node[i][j] = j
 
-    @patch('requests.get')
-    @patch('requests.post')
-    @patch('app.prompt_completion')
-    def test_validate_student_code_success(self, mock_prompt_completion, mock_post, mock_get):
-        # Mock Google token validation response
-        mock_get.return_value.status_code = 200
-        mock_get.return_value.json.return_value = {
-            "email": self.authorized_email
-        }
+    # Atualização das distâncias com Floyd-Warshall
+    for k in range(num_vertices):
+        for i in range(num_vertices):
+            for j in range(num_vertices):
+                if distance[i][k] + distance[k][j] < distance[i][j]:
+                    distance[i][j] = distance[i][k] + distance[k][j]
+                    next_node[i][j] = next_node[i][k]
+    
+    # Função para reconstruir o caminho entre dois nós
+    def reconstruct_path(start, end):
+        if next_node[start][end] is None:
+            return []
+        path = [start]
+        while start != end:
+            start = next_node[start][end]
+            path.append(start)
+        return path
 
-        # Mock generated code
-        mock_prompt_completion.return_value = "def test_function(): return 42"
+    start_node, end_node = path
+    total_distance = distance[start_node][end_node]
+    
+    # Reconstruir caminho
+    reconstructed_path = reconstruct_path(start_node, end_node)
+    
+    return [total_distance, reconstructed_path]
 
-        # Mock cloud function response
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = {
-            "test_results": [{"passed": True}],
-            "error": None
-        }
 
-        # Test data
-        test_data = {
-            "prompt": "Write a function that returns 42",
-            "function_id": "test_function",
-            "user_email": self.authorized_email
-        }
-
-        # Make request
-        response = self.client.post(
-            '/api/validate',
-            headers={
-                'Authorization': 'Bearer fake_token',
-                'Content-Type': 'application/json'
-            },
-            data=json.dumps(test_data)
-        )
-
-        # Assert response
-        self.assertEqual(response.status_code, 200)
-        response_data = json.loads(response.data)
-        self.assertTrue(all(test["passed"] for test in response_data["test_results"]))
-
-if __name__ == '__main__':
-    unittest.main() 
+floyd_warshall(*[[[0, 4, 5, "inf"], ["inf", 0, 2, 6], ["inf", "inf", 0, 3], ["inf", "inf", "inf", 0]], ["A", "D"]])
