@@ -10,29 +10,13 @@ def call_python_mockup():
 
     # Test function that returns a DataFrame
     test_code = """
-def process_morbidade_data(caminho_arquivo):
-    df_morbidade = pd.read_csv(caminho_arquivo, sep=";", na_values=['-', '...'], decimal=',', dtype={'cod_ibge6': str}, index_col=0)
-    
-    df_morbidade['uf'] = df_morbidade['cod_ibge6'].str[:2]
-    
-    agg_df = df_morbidade.groupby(['uf', 'cod_ibge6', 'Município']).agg({
-        'Valor_total': 'sum',
-        'Internações': 'sum',
-        'Dias_permanência': 'sum'
-    }).reset_index(drop=False)
-    
-    agg_df['Valor_total'] = agg_df['Valor_total'].round().astype('int64')
-    agg_df['Internações'] = agg_df['Internações'].round().astype('int64')
-    agg_df['Dias_permanência'] = agg_df['Dias_permanência'].round().astype('int64')
-    
-    agg_df['custo_medio_diario_intern'] = agg_df['Valor_total'] / agg_df['Dias_permanência']
-    
-    return agg_df.nlargest(5, 'custo_medio_diario_intern')
+def quadrados(n):
+    return {i: i**2 for i in range(1, n + 1)}
 """
 
     payload = {
         "code": test_code,
-        "function_id": "A9-E3"
+        "function_id": "A3-E1"
     }
 
     with app.test_request_context(

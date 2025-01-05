@@ -13,7 +13,7 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
 
-class UTF8JSONProvider(JSONProvider):
+""" class UTF8JSONProvider(JSONProvider):
     def dumps(self, obj, **kwargs):
         kwargs.setdefault('ensure_ascii', False)
         return json.dumps(obj, **kwargs)
@@ -25,6 +25,7 @@ class UTF8JSONProvider(JSONProvider):
             return json.loads(s, **kwargs)
         except UnicodeDecodeError:
             return json.loads(s.decode('latin-1'), **kwargs)
+ """
 
 users_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/users.json"
 courses_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/courses.json"
@@ -53,8 +54,8 @@ except Exception as e:
     print(f"An error occurred: {e}")
 
 app = Flask(__name__)
-app.json_provider_class = UTF8JSONProvider
-app.json = UTF8JSONProvider(app)
+#app.json_provider_class = UTF8JSONProvider
+#app.json = UTF8JSONProvider(app)
 app.secret_key = os.environ.get("SECRET_KEY")
 DEBUG = os.environ.get("DEBUG", None) == "True"
 OPENAI_GPT_MODEL = os.environ.get("OPENAI_GPT_MODEL")
