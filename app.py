@@ -272,7 +272,8 @@ def validate_student_code():
             json={
                 "code": generated_code,
                 "function_id": function_id
-            }
+            },
+            timeout=120  # Add timeout of 30 seconds
         )
 
         if cloud_response.status_code != 200:
@@ -315,6 +316,12 @@ def validate_student_code():
         
         return jsonify(result)
 
+    except requests.exceptions.Timeout:
+        return jsonify({
+            "error": "Request timed out. The operation took too long to complete.",
+            "user_email": user_email,
+            "function_id": function_id
+        }), 504  # Gateway Timeout status code
     except Exception as e:
         return jsonify({
             "error": f"Error processing request: {str(e)}",
