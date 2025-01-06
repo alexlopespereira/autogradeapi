@@ -366,77 +366,70 @@ def pibmunicipios_6_7():
 
 def morbidade_desagregado_6_8():
     import requests
-
-    urls = [
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2019/A002344189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2019/A212356189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2019/A212407189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A002126189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A102654189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A102744189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A102812189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A102850189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A102927189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A103139189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A103238189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A212148189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A212323189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A212334189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2021//A212345189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2021/A152003189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2021/A152053189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2021/A152118189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2021/A152142189_28_143_208.csv",
-        "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2021/A152222189_28_143_208.csv"
-    ]
-    response = requests.get(urls)
-    response.raise_for_status()  # Raise an exception for bad status codes
-    from io import BytesIO
+     # Raise an exception for bad status codes
+    from io import BytesIO, StringIO
     from zipfile import ZipFile
     import re
 
-    with ZipFile(BytesIO(response.content)) as z:
-        all_dfs = []
-        for filename in z.namelist():
-            if filename.endswith(".csv"):
-                with z.open(filename) as f:
-                    try:
-                        df = pd.read_csv(f, encoding='iso8859-1', sep=';', skiprows=3, skipfooter=7, engine='python')
-                        # Extract month and year
-                        with z.open(filename) as file:
-                            lines = file.readlines()
-                            if len(lines) >= 3:
-                                third_line = lines[2].decode('iso8859-1').strip()
-                                match = re.search(r"Período:([a-zA-Z]{3})/(\d{4})", third_line)
-                                if match:
-                                    month_abbr = match.group(1)
-                                    year = int(match.group(2))
-                                    month_map = {
-                                        "Jan": 1, "Fev": 2, "Mar": 3, "Abr": 4, "Mai": 5, "Jun": 6,
-                                        "Jul": 7, "Ago": 8, "Set": 9, "Out": 10, "Nov": 11, "Dez": 12
-                                    }
-                                    month = month_map.get(month_abbr)
 
-                                    df['mes'] = month
-                                    df['ano'] = year
+    urls = [
+            "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A103238189_28_143_208.csv",
+            "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A212148189_28_143_208.csv",
+            "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A212323189_28_143_208.csv",
+            "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A212334189_28_143_208.csv",
+            "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2020/A212345189_28_143_208.csv",
+            "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2021/A152003189_28_143_208.csv",
+            "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2021/A152053189_28_143_208.csv",
+            "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2021/A152118189_28_143_208.csv",
+            "https://github.com/alexlopespereira/mba_enap/raw/refs/heads/main/data/originais/morbidade/desagregado/2021/A152142189_28_143_208.csv"
+            ]
+    
+   
+    dados_concatenados = pd.DataFrame()
 
-                                    df['Data'] = pd.to_datetime({'year': df['ano'], 'month': df['mes'], 'day': 1})
-                                    all_dfs.append(df)
-                            else:
-                                print(f"File {filename} has less than 3 lines.")
-                    except pd.errors.ParserError:
-                        print(f"Error parsing file: {filename}")
+    for url in urls:
+        resposta = requests.get(url)
+        conteudo = resposta.content.decode('iso-8859-1')
 
-    combined_df = pd.concat(all_dfs, ignore_index=True)
+        linhas = conteudo.splitlines()
+        linha_periodo = linhas[2].strip()
+
+        if "Período:" in linha_periodo:
+            # Tratamento do padrão esperado
+            periodo = linha_periodo.split("Período:")[1].strip().rstrip(';')
+            mes, ano = periodo.split('/')
+            mes_numero = {"Jan": 1, "Fev": 2, "Mar": 3, "Abr": 4, "Mai": 5, "Jun": 6,
+                            "Jul": 7, "Ago": 8, "Set": 9, "Out": 10, "Nov": 11, "Dez": 12}
+            mes = mes_numero[mes]
+            ano = int(ano)
+        else:
+            # Tratamento do padrão diferente
+            periodo = linha_periodo.split("Período:")[1].strip().rstrip(';')
+            mes, ano = periodo.split('/')
+            mes_numero = 4  # Para 'Abr'
+            ano = int(ano)
+
+        # Carregando o arquivo para um DataFrame
+        df = pd.read_csv(StringIO(resposta.text), encoding='iso8859-1', skiprows=3, sep=';', skipfooter=7)
+
+        # Adicionando colunas de mês e ano
+        df['month'] = mes
+        df['year'] = ano
+
+        # Criando a coluna 'Data' com o primeiro dia do mês
+        df['Data'] = pd.to_datetime(df['year'].astype(str) + '-' + df['month'].astype(str) + '-01')
+
+        # Concatenando os dados
+        dados_concatenados = pd.concat([dados_concatenados, df], ignore_index=True)
 
     sample_rows = [
         {
             # First row to check
             "filter": {
-                "Município": "110001 Alta Floresta D'Oeste", "Data": "2019-12-01"
+                "Município": "110001 Alta Floresta D'Oeste", "Data": "2020-09-01"
             },
             "expected_values": {
-                "Internações": 193
+                "Internações": 146
             }
         },
         {
@@ -452,12 +445,12 @@ def morbidade_desagregado_6_8():
 
     # Create test case
     test_case = create_test_case_specification(
-        groundtruth_df=combined_df,
-        input_value=urls,
+        groundtruth_df=dados_concatenados,
+        input_value=[urls],
         function_id="A6-E8",
         testcase_id="1",
         sample_rows=sample_rows,
-        row_match_threshold=0.01
+        row_match_threshold=0.9
     )
 
     return test_case
@@ -964,6 +957,10 @@ def soma_valor_total_municipios_9_4():
 
 if __name__ == "__main__":
     # Example usage
-    test_case = soma_valor_total_municipios_9_4() #create_grupo()
+    test_case = morbidade_desagregado_6_8() #create_grupo()
     print("Generated Test Case:")
     print(json.dumps(test_case).replace("\n",""))
+    
+
+
+    

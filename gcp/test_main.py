@@ -10,55 +10,53 @@ def call_python_mockup():
 
     # Test function that returns a DataFrame
     test_code = """
-def floyd_warshall(adjacency_matrix, path):
-    # Converter valores "inf" da matriz de adjacência para float('inf')
-    for i in range(len(adjacency_matrix)):
-        for j in range(len(adjacency_matrix[i])):
-            if adjacency_matrix[i][j] == "inf":
-                adjacency_matrix[i][j] = float('inf')
-    
-    num_vertices = len(adjacency_matrix)
-    
-    # Inicialização das matrizes de distâncias e próximos nós
-    distance = [[float('inf')] * num_vertices for _ in range(num_vertices)]
-    next_node = [[None] * num_vertices for _ in range(num_vertices)]
-    
-    for i in range(num_vertices):
-        for j in range(num_vertices):
-            distance[i][j] = adjacency_matrix[i][j]
-            if adjacency_matrix[i][j] != float('inf') and i != j:
-                next_node[i][j] = j
+def carregar_csv(urls):
 
-    # Atualização das distâncias com Floyd-Warshall
-    for k in range(num_vertices):
-        for i in range(num_vertices):
-            for j in range(num_vertices):
-                if distance[i][k] + distance[k][j] < distance[i][j]:
-                    distance[i][j] = distance[i][k] + distance[k][j]
-                    next_node[i][j] = next_node[i][k]
-    
-    # Função para reconstruir o caminho entre dois nós
-    def reconstruct_path(start, end):
-        if next_node[start][end] is None:
-            return []
-        path = [start]
-        while start != end:
-            start = next_node[start][end]
-            path.append(start)
-        return path
 
-    start_node, end_node = path
-    total_distance = distance[start_node][end_node]
+
+    dataframes = []
     
-    # Reconstruir caminho
-    reconstructed_path = reconstruct_path(start_node, end_node)
+    for url in urls:
+        resposta = requests.get(url)
+        conteudo = resposta.content.decode('iso-8859-1')
+        
+        # Extrair período da terceira linha
+        linhas = conteudo.splitlines()
+        terceira_linha = linhas[2]
+        
+        if "Período:" in terceira_linha:
+            match = re.search(r'Período:([A-Za-z]{3}/\d{4})', terceira_linha)
+            if match:
+                periodo = match.group(1)
+                mes_str, ano_str = periodo.split('/')
+                ano = int(ano_str)
+                
+                # Converter mês de string para número
+                meses = {'Jan': 1, 'Fev': 2, 'Mar': 3, 'Abr': 4, 'Mai': 5, 'Jun': 6,
+                         'Jul': 7, 'Ago': 8, 'Set': 9, 'Out': 10, 'Nov': 11, 'Dez': 12}
+                mes = meses.get(mes_str)
+                
+                # Carregar o dataframe
+                df = pd.read_csv(BytesIO(resposta.content), encoding='iso-8859-1', skiprows=3, sep=';', skipfooter=7)
+                
+                # Adicionar colunas de mês e ano
+                df['month'] = mes
+                df['year'] = ano
+                
+                # Criar coluna de Data
+                df['Data'] = pd.to_datetime(df['year'].astype(str) + '-' + df['month'].astype(str) + '-01')
+                
+                # Adicionar DataFrame à lista
+                dataframes.append(df)
     
-    return [total_distance, reconstructed_path]
+    # Concatenar todos os dataframes
+    df_final = pd.concat(dataframes, ignore_index=True)
+    return df_final
 """
 
     payload = {
         "code": test_code,
-        "function_id": "A4-E10"
+        "function_id": "A6-E8"
     }
 
     with app.test_request_context(

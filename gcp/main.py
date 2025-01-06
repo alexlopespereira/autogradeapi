@@ -456,14 +456,22 @@ def call_python(request):
                 "message": "Missing required parameters: code or function_id"
             }), 400
 
-        # Initialize validator and run validation
-        validator = TestCaseValidator(function_id)
-        result = validator.run_validation(code)
+        # Initialize validator and run validation with timeout handling
+        try:
+            validator = TestCaseValidator(function_id)
+            result = validator.run_validation(code)
 
-        if result["status"] == "error":
-            return jsonify(result), 500
+            if result["status"] == "error":
+                return jsonify(result), 500
 
-        return jsonify(result), 200
+            return jsonify(result), 200
+
+        except TimeoutError:
+            return jsonify({
+                "status": "error",
+                "message": "Function execution timed out",
+                "error": "The operation took too long to complete. Please optimize your code or try with different input."
+            }), 504
 
     except Exception as e:
         return jsonify({
