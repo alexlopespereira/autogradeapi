@@ -118,7 +118,7 @@ def prompt_completion(user_prompt, is_reflection=False):
         max_completion_tokens=2500
     )
     
-    generated_response = response.choices[0].message.content.strip()
+    generated_response = response.choices[0].message.content.strip().replace("```", "")
     if not generated_response:
         print("prompt completion with o1-mini failed, retrying with gpt-4o-mini")
         response = client.chat.completions.create(
@@ -126,12 +126,12 @@ def prompt_completion(user_prompt, is_reflection=False):
             messages=[{"role": "user", "content": content}],
             max_completion_tokens=2500
         )
-        generated_response = response.choices[0].message.content.strip()
+        generated_response = response.choices[0].message.content.strip().replace("```", "") 
         print(f"gpt-4o-mini: {generated_response}")
         if not generated_response:
             raise Exception("The generated code is empty. You probably sent a too large prompt.")
     else:
-        print(f"o1-mini: {generated_response}")
+        print(f"GPT: {generated_response}")
     
     return generated_response
 
@@ -262,6 +262,7 @@ def validate_student_code():
         if is_reflection:
             # Handle reflection submission
             evaluation = prompt_completion(user_prompt, is_reflection=True)
+            evaluation = re.sub(r"^json\s*", "", evaluation)
             try:
                 evaluation_dict = json.loads(evaluation)
                 result = {
@@ -297,7 +298,6 @@ def validate_student_code():
         else:
             # Generate code from prompt
             generated_code = prompt_completion(user_prompt)
-            generated_code = generated_code.replace("```", "")
             generated_code = re.sub(r"^python\s*", "", generated_code)
             print(f"generated code: {generated_code}")
 
