@@ -37,7 +37,7 @@ def carregar_csv(urls):
                 mes = meses.get(mes_str)
                 
                 # Carregar o dataframe
-                df = pd.read_csv(BytesIO(resposta.content), encoding='iso-8859-1', skiprows=3, sep=';', skipfooter=7)
+                df = pd.read_csv(BytesIO(resposta.content), encoding='iso-8859-1', skiprows=3, sep=';', skipfooter=7, na_values="-")
                 
                 # Adicionar colunas de mês e ano
                 df['month'] = mes
