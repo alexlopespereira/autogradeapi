@@ -296,6 +296,8 @@ def validate_student_code():
         else:
             # Generate code from prompt
             generated_code = prompt_completion(user_prompt)
+            generated_code = generated_code.replace("```", "")
+            generated_code = re.sub(r"^python\s*", "", generated_code)
             print(f"generated code: {generated_code}")
 
             # Analyze code safety
