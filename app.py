@@ -88,39 +88,51 @@ def analyze_code_safety(code):
     
 
 
-def prompt_completion(user_prompt):
-    """Generate code using OpenAI API based on user prompt."""
+def prompt_completion(user_prompt, is_reflection=False):
+    """Generate code or evaluate reflection using OpenAI API."""
     client = OpenAI()
-    content = f"In your answer do not return in hypertext format, return only raw text. Do not produce code for importing packages, all the allowed packages are already imported. Write a Python function for the following prompt:\n{user_prompt}"
+    
+    if is_reflection:
+        content = f"""You are a teaching assistant evaluating a student's reflection. 
+        The student was asked to summarize what they learned in this class.
+        
+        Evaluate the following reflection, considering:
+        - Depth of understanding
+        - Specific concepts mentioned
+        - Connection between ideas
+        - Personal insights
+        
+        Return a JSON with two fields:
+        - "passed": boolean indicating if the reflection meets quality standards
+        - "feedback": brief explanation of the evaluation
+        
+        Student reflection:
+        {user_prompt}"""
+    else:
+        content = f"In your answer do not return in hypertext format... {user_prompt}"
     
     response = client.chat.completions.create(
         model=OPENAI_GPT_MODEL,
-        messages=[{
-            "role": "user",
-            "content": content
-        }],
+        messages=[{"role": "user", "content": content}],
         max_completion_tokens=2500
     )
     
-    generated_code = response.choices[0].message.content.strip().replace("```", "")
-    if not generated_code:
+    generated_response = response.choices[0].message.content.strip()
+    if not generated_response:
         print("prompt completion with o1-mini failed, retrying with gpt-4o-mini")
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{
-                "role": "user",
-                "content": content
-            }],
+            messages=[{"role": "user", "content": content}],
             max_completion_tokens=2500
         )
-        generated_code = response.choices[0].message.content.strip().replace("```", "")
-        print(f"gpt-4o-mini: {generated_code}")
-        if not generated_code:
+        generated_response = response.choices[0].message.content.strip()
+        print(f"gpt-4o-mini: {generated_response}")
+        if not generated_response:
             raise Exception("The generated code is empty. You probably sent a too large prompt.")
     else:
-        print(f"o1-mini: {generated_code}")
+        print(f"o1-mini: {generated_response}")
     
-    return re.sub(r"^python\s*", "", generated_code)
+    return generated_response
 
 
 
@@ -237,84 +249,124 @@ def validate_student_code():
     function_id = data["function_id"]
     user_email = data["user_email"]
     course = data["course"]
+    timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    submission_id = f"{email}_{function_id}"
+    within_deadline, deadline = check_deadline(function_id, timestamp, course)
+    class_number, exercise_number = function_id.split("-")
 
     try:
-        # Generate code from prompt
-        generated_code = prompt_completion(user_prompt)
-        print(f"generated code: {generated_code}")
+        # Check if this is a reflection question
+        is_reflection = "-R" in function_id
 
-        # Analyze code safety
-        is_safe, error_message = analyze_code_safety(generated_code)
-        if not is_safe:
-            return jsonify({"error": f"Unsafe code: {error_message}"}), 400
+        if is_reflection:
+            # Handle reflection submission
+            evaluation = prompt_completion(user_prompt, is_reflection=True)
+            try:
+                evaluation_dict = json.loads(evaluation)
+                result = {
+                    "passed": evaluation_dict["passed"],
+                    "feedback": evaluation_dict["feedback"],
+                    "reflection_text": user_prompt  # Store the original reflection
+                }
+            except json.JSONDecodeError:
+                return jsonify({"error": "Invalid evaluation format from AI"}), 500
 
-        # Prepare cloud function call
-        cloud_function_url = os.environ.get("GCP_FUNC_URL")
-        service_account_info = json.loads(os.getenv("SERVICE_ACCOUNT_JSON"))
+            timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            class_number, exercise_number = function_id.split("-")
+            submission_id = f"{email}_{function_id}"
+            
+            # Log reflection to sheets with different column structure
+            log_to_sheets([
+                timestamp,
+                email,
+                course,
+                class_number,
+                exercise_number,
+                submission_id,
+                str(result["passed"]),
+                within_deadline,  # Get deadline status based on class day
+                deadline,  # Get deadline timestamp based on class day
+                result["feedback"],
+                user_prompt,  # Store the actual reflection text
+                f"{email}_{function_id}_{timestamp}"
+            ])
 
-        credentials = service_account.IDTokenCredentials.from_service_account_info(
-            service_account_info,
-            target_audience=cloud_function_url
-        )
+            return jsonify(result)
 
-        request_adapter = Request()
-        credentials.refresh(request_adapter)
-        
-        # Call cloud function for validation
-        headers = {
-            'Authorization': f'Bearer {credentials.token}',
-            'Content-Type': 'application/json'
-        }
-        
-        cloud_response = requests.post(
-            cloud_function_url,
-            headers=headers,
-            json={
-                "code": generated_code,
+        else:
+            # Generate code from prompt
+            generated_code = prompt_completion(user_prompt)
+            print(f"generated code: {generated_code}")
+
+            # Analyze code safety
+            is_safe, error_message = analyze_code_safety(generated_code)
+            if not is_safe:
+                return jsonify({"error": f"Unsafe code: {error_message}"}), 400
+
+            # Prepare cloud function call
+            cloud_function_url = os.environ.get("GCP_FUNC_URL")
+            service_account_info = json.loads(os.getenv("SERVICE_ACCOUNT_JSON"))
+
+            credentials = service_account.IDTokenCredentials.from_service_account_info(
+                service_account_info,
+                target_audience=cloud_function_url
+            )
+
+            request_adapter = Request()
+            credentials.refresh(request_adapter)
+            
+            # Call cloud function for validation
+            headers = {
+                'Authorization': f'Bearer {credentials.token}',
+                'Content-Type': 'application/json'
+            }
+            
+            cloud_response = requests.post(
+                cloud_function_url,
+                headers=headers,
+                json={
+                    "code": generated_code,
+                    "function_id": function_id
+                },
+                timeout=120  # Add timeout of 30 seconds
+            )
+
+            if cloud_response.status_code != 200:
+                return jsonify({"error": f"Cloud function error: {cloud_response.text}"}), cloud_response.status_code
+
+            # Return cloud function response
+            result = cloud_response.json()
+            result.update({
+                "user_email": user_email,
                 "function_id": function_id
-            },
-            timeout=120  # Add timeout of 30 seconds
-        )
+            })
 
-        if cloud_response.status_code != 200:
-            return jsonify({"error": f"Cloud function error: {cloud_response.text}"}), cloud_response.status_code
+            print(result)
 
-        # Return cloud function response
-        result = cloud_response.json()
-        result.update({
-            "user_email": user_email,
-            "function_id": function_id
-        })
+            error_message = result.get("error", None)
 
-        print(result)
-        timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-        submission_id = f"{email}_{function_id}"
-        error_message = result.get("error", None)
+            passed = False
+            if "test_results" in result and result["test_results"]:
+                passed = all(test.get("passed", False) for test in result["test_results"])
+            
+            # Add deadline check
 
-        passed = False
-        if "test_results" in result and result["test_results"]:
-            passed = all(test.get("passed", False) for test in result["test_results"])
-        
-        # Add deadline check
-        within_deadline, deadline = check_deadline(function_id, timestamp, course)
-        
-        class_number, exercise_number = function_id.split("-")
-        print(passed, timestamp, email, course, class_number, exercise_number, submission_id, error_message)
-        log_to_sheets([
-            timestamp,
-            email,
-            course,
-            class_number,
-            exercise_number,
-            submission_id,
-            str(passed),
-            str(within_deadline),  # Add deadline status
-            deadline,              # Add deadline timestamp
-            error_message or "None",
-            f"{email}_{function_id}_{timestamp}"
-        ])
-        
-        return jsonify(result)
+            print(passed, timestamp, email, course, class_number, exercise_number, submission_id, error_message)
+            log_to_sheets([
+                timestamp,
+                email,
+                course,
+                class_number,
+                exercise_number,
+                submission_id,
+                str(passed),
+                str(within_deadline),  # Add deadline status
+                deadline,              # Add deadline timestamp
+                error_message or "None",
+                f"{email}_{function_id}_{timestamp}"
+            ])
+            
+            return jsonify(result)
 
     except requests.exceptions.Timeout:
         return jsonify({
