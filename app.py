@@ -109,7 +109,8 @@ def prompt_completion(user_prompt, is_reflection=False):
         Student reflection:
         {user_prompt}"""
     else:
-        content = f"In your answer do not return in hypertext format... {user_prompt}"
+        # content = f"In your answer do not return in hypertext format... {user_prompt}"
+        content = f"In your answer do not return in hypertext format, return only raw text. Do not produce code for importing packages, all the allowed packages are already imported. Do not create code for testing the function. Write a Python function for the following prompt:\n{user_prompt}"
     
     response = client.chat.completions.create(
         model=OPENAI_GPT_MODEL,
