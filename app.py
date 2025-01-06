@@ -286,7 +286,7 @@ def validate_student_code():
                 exercise_number,
                 submission_id,
                 str(result["passed"]),
-                within_deadline,  # Get deadline status based on class day
+                str(within_deadline),  # Get deadline status based on class day
                 deadline,  # Get deadline timestamp based on class day
                 result["feedback"],
                 f"{email}_{function_id}_{timestamp}",
