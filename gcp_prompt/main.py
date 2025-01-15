@@ -1,22 +1,19 @@
 import json
 import os
 import functions_framework
-from flask import Flask, request, jsonify, session
+from flask import request, jsonify, session
 import ast
 import re
 import numpy as np
 import pandas as pd
-from typing import Any, Dict, List, Union, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 import traceback
 import requests
-from decimal import Decimal
 import math
 from datetime import datetime, timedelta
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from openai import OpenAI
-from google_auth_oauthlib.flow import Flow
-from google.auth.transport.requests import Request
 import google.auth
 from google.cloud import secretmanager
 
@@ -61,7 +58,11 @@ os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
 def prompt_completion(user_prompt, is_reflection=False):
     """Generate code or evaluate reflection using OpenAI API."""
-    client = OpenAI()
+    api_key = access_secret(
+        project_id="autograde-314802",
+        secret_id="OPENAI_API_KEY"
+    )
+    client = OpenAI(api_key=api_key)
     
     if is_reflection:
         content = f"""You are a teaching assistant evaluating a student's reflection. 
@@ -660,16 +661,7 @@ def analyze_code_safety(code):
 
 @functions_framework.http
 def validate_code(request):
-    """Cloud function to validate student code.
-    
-    Expected request JSON:
-    {
-        "prompt": "Write me a Python function chamada repeat que repita cada um dos numeros de uma lista a mesma quantidade de vezes do proprio numero numa nova lista e a retorne",
-        "function_id": "A2-E1",
-        "user_email": "alexlopespereira@gmail.com",
-        "course": "mba_enap"
-    }
-    """
+    """Cloud function to validate student code."""
     # Set CORS headers for the preflight request
     if request.method == 'OPTIONS':
         headers = {
@@ -698,7 +690,6 @@ def validate_code(request):
     except Exception as e:
         print(f"An error occurred: {e}")
 
-
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         return jsonify({"error": "Missing or invalid Authorization header"}), 401
@@ -709,6 +700,8 @@ def validate_code(request):
         # Verify Google token
         response = requests.get(f"https://oauth2.googleapis.com/tokeninfo?access_token={token}")
         if response.status_code != 200:
+            print(f"response: {response}")
+            print(f"status code: {response.status_code}")
             return jsonify({"error": "Invalid token"}), 403
 
         token_info = response.json()
@@ -717,16 +710,14 @@ def validate_code(request):
         if not email:
             return jsonify({"error": "Email not found in token"}), 403
 
-        if email in AUTHORIZED_USERS:
-            session["user_email"] = email
-            print(f'Welcome, {email}!')
-        else:
+        if email not in AUTHORIZED_USERS:  # Changed from using session to direct check
             return jsonify({"error": "Unauthorized user"}), 403
+
+        print(f'Welcome, {email}!')
 
     except Exception as e:
         print(f"Token validation error: {e}")
         return jsonify({"error": "Invalid token"}), 403
-
 
     try:
         data = request.get_json()
