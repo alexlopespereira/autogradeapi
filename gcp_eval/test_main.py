@@ -3,7 +3,7 @@ def call_python_mockup():
     Emulate a request to call_python for testing DataFrame validation.
     """
     from flask import Flask, request
-    from main import call_python
+    from gcp_prompt.main import call_python
     import pandas as pd
 
     app = Flask(__name__)

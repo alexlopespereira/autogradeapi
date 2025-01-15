@@ -1,4 +1,8 @@
-from flask import jsonify
+import json
+import os
+import functions_framework
+from flask import Flask, request, jsonify, session
+import ast
 import re
 import numpy as np
 import pandas as pd
@@ -7,10 +11,181 @@ import traceback
 import requests
 from decimal import Decimal
 import math
+from datetime import datetime, timedelta
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from openai import OpenAI
+from google_auth_oauthlib.flow import Flow
+from google.auth.transport.requests import Request
+import google.auth
+from google.cloud import secretmanager
+
+def access_secret(project_id, secret_id, version_id="latest"):
+    client = secretmanager.SecretManagerServiceClient()
+    name = f"projects/{project_id}/secrets/{secret_id}/versions/{version_id}"
+    response = client.access_secret_version(request={"name": name})
+    return response.payload.data.decode("UTF-8")
+
+
+
+def fetch_json(url):
+    response = requests.get(url)
+    response.raise_for_status()
+    return response.json()
+
 
 def round_down(n, decimals=1):
     multiplier = 10 ** decimals
     return math.floor(n * multiplier) / multiplier
+
+FORBIDDEN_KEYWORDS = ["eval", "exec", "os", "sys", "subprocess"]
+users_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/users.json"
+courses_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/courses.json"
+deadlines_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/deadlines.json"  # Update with actual URL
+
+
+users_data = fetch_json(users_url)
+courses_data = fetch_json(courses_url)
+deadlines_data = fetch_json(deadlines_url)
+
+OPENAI_GPT_MODEL = os.environ.get("OPENAI_GPT_MODEL")
+os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+
+#credentials = json.loads(os.environ.get('GOOGLE_CREDENTIALS'))
+#flow = Flow.from_client_config(
+#    credentials,
+#    scopes=["https://www.googleapis.com/auth/userinfo.email"],
+#    redirect_uri="https://seal-app-pmncf.ondigitalocean.app/callback"
+#)
+
+
+def prompt_completion(user_prompt, is_reflection=False):
+    """Generate code or evaluate reflection using OpenAI API."""
+    client = OpenAI()
+    
+    if is_reflection:
+        content = f"""You are a teaching assistant evaluating a student's reflection. 
+        The student was asked to summarize what they learned in this class.
+        
+        Evaluate the following reflection, considering:
+        - Depth of understanding
+        - Specific concepts mentioned
+        - Connection between ideas
+        - Personal insights
+        
+        Return a JSON with two fields:
+        - "passed": boolean indicating if the reflection meets quality standards
+        - "feedback": brief explanation of the evaluation
+        
+        Student reflection:
+        {user_prompt}"""
+    else:
+        # content = f"In your answer do not return in hypertext format... {user_prompt}"
+        content = f"In your answer do not return in hypertext format, return only raw text. Do not produce code for importing packages, all the allowed packages are already imported. Do not create code for testing the function. Write a Python function for the following prompt:\n{user_prompt}"
+    
+    response = client.chat.completions.create(
+        model=OPENAI_GPT_MODEL,
+        messages=[{"role": "user", "content": content}],
+        max_completion_tokens=2500
+    )
+    
+    generated_response = response.choices[0].message.content.strip().replace("```", "")
+    if not generated_response:
+        print("prompt completion with o1-mini failed, retrying with gpt-4o-mini")
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": content}],
+            max_completion_tokens=2500
+        )
+        generated_response = response.choices[0].message.content.strip().replace("```", "") 
+        print(f"gpt-4o-mini: {generated_response}")
+        if not generated_response:
+            raise Exception("The generated code is empty. You probably sent a too large prompt.")
+    else:
+        print(f"GPT: {generated_response}")
+    
+    return generated_response
+
+
+
+def log_to_sheets(row_data):
+    """
+    Logs a row of data to Google Sheets
+    """
+
+    # credentials, project_id = google.auth.default(scopes=['https://www.googleapis.com/auth/spreadsheets'])
+    submission_credentials = json.loads(access_secret(
+        project_id="autograde-314802",
+        secret_id="GOOGLE_SUBMISSION_CREDENTIALS"
+    ))
+    # submission_credentials = json.loads(os.environ.get('GOOGLE_SUBMISSION_CREDENTIALS'))
+
+    SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+    SPREADSHEET_ID = '1IwvQoqdMUklaw5P2CZH7YWKdeZhhehJljd1TdI0RDP0'
+    RANGE_NAME = 'records!A:L'
+
+    try:
+        # Load credentials from service account file
+        creds = service_account.Credentials.from_service_account_info(
+           info=submission_credentials,
+           scopes=SCOPES
+        )
+
+        # Build the Sheets API service
+        service = build('sheets', 'v4', credentials=creds)
+
+        # Prepare the request body
+        body = {
+            'values': [row_data]
+        }
+
+        # Append the row to the sheet
+        service.spreadsheets().values().append(
+            spreadsheetId=SPREADSHEET_ID,
+            range=RANGE_NAME,
+            valueInputOption='RAW',
+            insertDataOption='INSERT_ROWS',
+            body=body
+        ).execute()
+
+    except Exception as e:
+        print(f"Error logging to sheets: {str(e)}")
+
+
+def check_deadline(function_id, submission_time, course):
+    """Check if submission is within deadline"""
+    try:
+        # Extract class day from function_id (e.g., "A2" from "A2_E6")
+        class_day = function_id.split("-")[0]
+        
+        # Get deadlines for the specific course
+        course_deadlines = deadlines_data.get(course, {}).get("deadlines", [])
+        
+        deadline_info = next(
+            (d for d in course_deadlines if d["class_day"] == class_day),
+            None
+        )
+        print(f"class_day={class_day}, deadline_info={deadline_info}")
+        
+        if not deadline_info:
+            return True, f"No deadline specified for {course} - {class_day}"
+            
+        # Parse timezone offset
+        timezone_str = deadline_info.get("timezone", "UTC-0")
+        timezone_offset = int(timezone_str.replace("UTC", ""))
+        
+        # Convert deadline to UTC
+        deadline = datetime.fromisoformat(deadline_info["deadline"])
+        deadline = deadline + timedelta(hours=timezone_offset)  # Convert to UTC
+        
+        # Convert submission time to UTC (assuming it's already in UTC)
+        submission = datetime.fromisoformat(submission_time)
+        
+        return submission <= deadline, f"{deadline_info['deadline']} {timezone_str}"
+    except Exception as e:
+        print(f"Error checking deadline: {e}")
+        return True, "Error checking deadline"
+
 
 
 def validate_dataframe(df: pd.DataFrame, expected_format: dict) -> Tuple[bool, List[str], dict]:
@@ -359,8 +534,8 @@ from io import BytesIO
 from io import StringIO
 import random
 import zipfile
+from datetime import date, timedelta
 import datetime
-from datetime import date, timedelta, strftime
 import re
 from collections import defaultdict
 {cleaned_text}
@@ -443,40 +618,238 @@ from collections import defaultdict
             }
 
 
-def call_python(request):
+def call_python(data):
     """Cloud Function to execute and validate Python code against test cases."""
+    # data = request.get_json()
+    code = data.get("code")
+    function_id = data.get("function_id")
+
+    if not all([code, function_id]):
+        return {
+            "status": "error",
+            "message": "Missing required parameters: code or function_id"
+        }
+
+    # Initialize validator and run validation with timeout handling
+    validator = TestCaseValidator(function_id)
+    result = validator.run_validation(code)
+
+    if result["status"] == "error":
+        return result
+
+    return result
+
+
+def analyze_code_safety(code):
+    """Analyze code for potential security issues."""
+    try:
+        formatted_code = code.replace("\\n", "\n")
+        tree = ast.parse(formatted_code)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                if node.func.id in FORBIDDEN_KEYWORDS:
+                    return False, f"Use of '{node.func.id}' is not allowed."
+        return True, None
+    except SyntaxError as e:
+        if "unterminated string literal" in str(e):
+            return True, None
+        return False, f"Syntax error in code: {e}"
+
+
+
+
+@functions_framework.http
+def validate_code(request):
+    """Cloud function to validate student code.
+    
+    Expected request JSON:
+    {
+        "prompt": "Write me a Python function chamada repeat que repita cada um dos numeros de uma lista a mesma quantidade de vezes do proprio numero numa nova lista e a retorne",
+        "function_id": "A2-E1",
+        "user_email": "alexlopespereira@gmail.com",
+        "course": "mba_enap"
+    }
+    """
+    # Set CORS headers for the preflight request
+    if request.method == 'OPTIONS':
+        headers = {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST',
+            'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+            'Access-Control-Max-Age': '3600'
+        }
+        return ('', 204, headers)
+
+    # Set CORS headers for the main request
+    headers = {
+        'Access-Control-Allow-Origin': '*'
+    }
+
+    try:
+        valid_courses = courses_data.get("courses", [])
+        authorized_users = set()
+
+        for course in valid_courses:
+            authorized_users.update(users_data.get(course, []))
+
+        AUTHORIZED_USERS = authorized_users
+        print("AUTHORIZED_USERS updated successfully:", AUTHORIZED_USERS)
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Missing or invalid Authorization header"}), 401
+
+    token = auth_header.split("Bearer ")[1]
+
+    try:
+        # Verify Google token
+        response = requests.get(f"https://oauth2.googleapis.com/tokeninfo?access_token={token}")
+        if response.status_code != 200:
+            return jsonify({"error": "Invalid token"}), 403
+
+        token_info = response.json()
+        email = token_info.get("email")
+
+        if not email:
+            return jsonify({"error": "Email not found in token"}), 403
+
+        if email in AUTHORIZED_USERS:
+            session["user_email"] = email
+            print(f'Welcome, {email}!')
+        else:
+            return jsonify({"error": "Unauthorized user"}), 403
+
+    except Exception as e:
+        print(f"Token validation error: {e}")
+        return jsonify({"error": "Invalid token"}), 403
+
+
     try:
         data = request.get_json()
-        code = data.get("code")
+        user_prompt = data.get("prompt")
         function_id = data.get("function_id")
+        user_email = data.get("user_email")
+        course = data.get("course")
 
-        if not all([code, function_id]):
+        if not all([user_prompt, function_id, user_email, course]):
             return jsonify({
                 "status": "error",
-                "message": "Missing required parameters: code or function_id"
+                "message": "Missing required parameters: prompt, user_email, course or function_id"
             }), 400
-
-        # Initialize validator and run validation with timeout handling
-        try:
-            validator = TestCaseValidator(function_id)
-            result = validator.run_validation(code)
-
-            if result["status"] == "error":
-                return jsonify(result), 500
-
-            return jsonify(result), 200
-
-        except TimeoutError:
-            return jsonify({
-                "status": "error",
-                "message": "Function execution timed out",
-                "error": "The operation took too long to complete. Please optimize your code or try with different input."
-            }), 504
-
     except Exception as e:
         return jsonify({
             "status": "error",
             "message": "An error occurred while processing the request",
             "error": str(e),
             "traceback": traceback.format_exc()
+        }), 500
+    
+
+    timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    submission_id = f"{user_email}_{function_id}"
+    within_deadline, deadline = check_deadline(function_id, timestamp, course)
+    class_number, exercise_number = function_id.split("-")
+
+    try:
+        # Check if this is a reflection question
+        is_reflection = "-R" in function_id
+
+        if is_reflection:
+            # Handle reflection submission
+            evaluation = prompt_completion(user_prompt, is_reflection=True)
+            evaluation = re.sub(r"^json\s*", "", evaluation)
+            try:
+                evaluation_dict = json.loads(evaluation)
+                result = {
+                    "passed": evaluation_dict["passed"],
+                    "feedback": evaluation_dict["feedback"],
+                    "reflection_text": user_prompt  # Store the original reflection
+                }
+            except json.JSONDecodeError:
+                return jsonify({"error": "Invalid evaluation format from AI"}), 500
+
+            timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            class_number, exercise_number = function_id.split("-")
+            submission_id = f"{user_email}_{function_id}"
+            
+            # Log reflection to sheets with different column structure
+            log_to_sheets([
+                timestamp,
+                user_email,
+                course,
+                class_number,
+                exercise_number,
+                submission_id,
+                str(result["passed"]),
+                str(within_deadline),  # Get deadline status based on class day
+                deadline,  # Get deadline timestamp based on class day
+                result["feedback"],
+                f"{user_email}_{function_id}_{timestamp}",
+                user_prompt  # Store the actual reflection text
+            ])
+
+            return jsonify(result)
+
+        else:
+            # Generate code from prompt
+            generated_code = prompt_completion(user_prompt)
+            generated_code = re.sub(r"^python\s*", "", generated_code)
+            print(f"generated code: {generated_code}")
+
+            # Validate request data
+            is_safe, error_message = analyze_code_safety(generated_code)
+            if not is_safe:
+                return jsonify({"error": f"Unsafe code: {error_message}"}), 400
+
+            
+            # Return cloud function response
+            result = call_python({"code": generated_code, "function_id": function_id})
+            result.update({
+                "user_email": user_email,
+                "function_id": function_id
+            })
+
+            print(result)
+
+            error_message = result.get("error", None)
+
+            passed = False
+            if "test_results" in result and result["test_results"]:
+                passed = all(test.get("passed", False) for test in result["test_results"])
+            
+            # Add deadline check
+
+            print(passed, timestamp, user_email, course, class_number, exercise_number, submission_id, error_message)
+            log_to_sheets([
+                timestamp,
+                user_email,
+                course,
+                class_number,
+                exercise_number,
+                submission_id,
+                str(passed),
+                str(within_deadline),  # Add deadline status
+                deadline,              # Add deadline timestamp
+                error_message or "None",
+                f"{user_email}_{function_id}_{timestamp}",
+                user_prompt
+            ])
+            
+            return jsonify(result)
+
+    except requests.exceptions.Timeout:
+        return jsonify({
+            "error": "Request timed out. The operation took too long to complete.",
+            "user_email": user_email,
+            "function_id": function_id
+        }), 504  # Gateway Timeout status code
+    except Exception as e:
+        return jsonify({
+            "error": f"Error processing request: {str(e)}",
+            "user_email": user_email,
+            "function_id": function_id
         }), 500
