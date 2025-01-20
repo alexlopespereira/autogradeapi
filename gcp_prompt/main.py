@@ -56,7 +56,61 @@ os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 #)
 
 
-def prompt_completion(user_prompt, is_reflection=False):
+def get_reflection_history(course: str) -> List[str]:
+    """Retrieve previous passing reflection answers from Google Sheets."""
+    try:
+        # Get credentials
+        submission_credentials = json.loads(access_secret(
+            project_id="autograde-314802",
+            secret_id="GOOGLE_SUBMISSION_CREDENTIALS"
+        ))
+
+        SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+        SPREADSHEET_ID = '1IwvQoqdMUklaw5P2CZH7YWKdeZhhehJljd1TdI0RDP0'
+        RANGE_NAME = 'records!A:L'  # All columns
+
+        # Load credentials from service account file
+        creds = service_account.Credentials.from_service_account_info(
+            info=submission_credentials,
+            scopes=SCOPES
+        )
+
+        # Build the Sheets API service
+        service = build('sheets', 'v4', credentials=creds)
+
+        # Get all rows
+        result = service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range=RANGE_NAME
+        ).execute()
+        
+        rows = result.get('values', [])
+        
+        # Filter rows for passing reflection answers
+        # Column indices: B=email, C=course, D=class_number, E=exercise_number, G=passed, L=reflection_text
+        passing_reflections = []
+        for row in rows:
+            if len(row) >= 12:  # Ensure row has all needed columns
+                row_course = row[2]
+                row_class = row[3]
+                row_exercise = row[4]
+                row_passed = row[6].lower() == 'true'
+                reflection_text = row[11]
+                
+                # Check if this is a reflection exercise for the specified course and class
+                if (row_course == course and 
+                    'R' in row_exercise and 
+                    row_passed and 
+                    reflection_text.strip()):
+                    passing_reflections.append(reflection_text)
+        #print(f"passing_reflections={passing_reflections[:3]}")
+        return passing_reflections
+
+    except Exception as e:
+        print(f"Error retrieving reflection history: {str(e)}")
+        return []
+
+def prompt_completion(user_prompt, is_reflection=False, course=None, class_number=None):
     """Generate code or evaluate reflection using OpenAI API."""
     api_key = access_secret(
         project_id="autograde-314802",
@@ -65,6 +119,16 @@ def prompt_completion(user_prompt, is_reflection=False):
     client = OpenAI(api_key=api_key)
     
     if is_reflection:
+        # Get previous passing reflections
+        previous_reflections = []
+        if course and class_number:
+            previous_reflections = get_reflection_history(course)
+        
+        previous_reflections_text = "\n\n".join([
+            f"Previous passing reflection #{i+1}:\n{text}"
+            for i, text in enumerate(previous_reflections)
+        ])
+        
         content = f"""You are a teaching assistant evaluating a student's reflection. 
         The student was asked to summarize what they learned in this class.
         
@@ -73,15 +137,18 @@ def prompt_completion(user_prompt, is_reflection=False):
         - Specific concepts mentioned
         - Connection between ideas
         - Personal insights
+        - Originality (the answer should not be too similar to previous passing answers)
+        
+        Here are the previous passing reflections for reference:
+        {previous_reflections_text}
         
         Return a JSON with two fields:
-        - "passed": boolean indicating if the reflection meets quality standards
-        - "feedback": brief explanation of the evaluation
+        - "passed": boolean indicating if the reflection meets quality standards AND is sufficiently original
+        - "feedback": brief explanation of the evaluation, including any concerns about similarity to previous answers
         
-        Student reflection:
+        Current student reflection to evaluate:
         {user_prompt}"""
     else:
-        # content = f"In your answer do not return in hypertext format... {user_prompt}"
         content = f"In your answer do not return in hypertext format, return only raw text. Do not produce code for importing packages, all the allowed packages are already imported. Do not create code for testing the function. Write a Python function for the following prompt:\n{user_prompt}"
     
     response = client.chat.completions.create(
@@ -102,8 +169,6 @@ def prompt_completion(user_prompt, is_reflection=False):
         print(f"gpt-4o-mini: {generated_response}")
         if not generated_response:
             raise Exception("The generated code is empty. You probably sent a too large prompt.")
-    else:
-        print(f"GPT: {generated_response}")
     
     return generated_response
 
@@ -114,12 +179,10 @@ def log_to_sheets(row_data):
     Logs a row of data to Google Sheets
     """
 
-    # credentials, project_id = google.auth.default(scopes=['https://www.googleapis.com/auth/spreadsheets'])
     submission_credentials = json.loads(access_secret(
         project_id="autograde-314802",
         secret_id="GOOGLE_SUBMISSION_CREDENTIALS"
     ))
-    # submission_credentials = json.loads(os.environ.get('GOOGLE_SUBMISSION_CREDENTIALS'))
 
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
     SPREADSHEET_ID = '1IwvQoqdMUklaw5P2CZH7YWKdeZhhehJljd1TdI0RDP0'
@@ -557,7 +620,7 @@ from collections import defaultdict
                         inputs = [inputs]
 
                     # Execute function and compare results
-                    print(f"inputs: {inputs}")
+                    #print(f"inputs: {inputs}")
                     if "input_transformation" in test_case and test_case["input_transformation"]['input_type'] == "dataframe":
                         df = pd.DataFrame(inputs[test_case["input_transformation"]['replace_index']])
                         inputs[0] = df
@@ -685,7 +748,7 @@ def validate_code(request):
             authorized_users.update(users_data.get(course, []))
 
         AUTHORIZED_USERS = authorized_users
-        print("AUTHORIZED_USERS updated successfully:", AUTHORIZED_USERS)
+        #print("AUTHORIZED_USERS updated successfully:", AUTHORIZED_USERS)
 
     except Exception as e:
         print(f"An error occurred: {e}")
@@ -700,8 +763,8 @@ def validate_code(request):
         # Verify Google token
         response = requests.get(f"https://oauth2.googleapis.com/tokeninfo?access_token={token}")
         if response.status_code != 200:
-            print(f"response: {response}")
-            print(f"status code: {response.status_code}")
+            #print(f"response: {response}")
+            #print(f"status code: {response.status_code}")
             return jsonify({"error": "Invalid token"}), 403
 
         token_info = response.json()
@@ -713,7 +776,7 @@ def validate_code(request):
         if email not in AUTHORIZED_USERS:  # Changed from using session to direct check
             return jsonify({"error": "Unauthorized user"}), 403
 
-        print(f'Welcome, {email}!')
+        #print(f'Welcome, {email}!')
 
     except Exception as e:
         print(f"Token validation error: {e}")
@@ -751,7 +814,12 @@ def validate_code(request):
 
         if is_reflection:
             # Handle reflection submission
-            evaluation = prompt_completion(user_prompt, is_reflection=True)
+            evaluation = prompt_completion(
+                user_prompt, 
+                is_reflection=True,
+                course=course,
+                class_number=class_number
+            )
             evaluation = re.sub(r"^json\s*", "", evaluation)
             try:
                 evaluation_dict = json.loads(evaluation)
@@ -789,7 +857,7 @@ def validate_code(request):
             # Generate code from prompt
             generated_code = prompt_completion(user_prompt)
             generated_code = re.sub(r"^python\s*", "", generated_code)
-            print(f"generated code: {generated_code}")
+            #print(f"generated code: {generated_code}")
 
             # Validate request data
             is_safe, error_message = analyze_code_safety(generated_code)
@@ -804,7 +872,7 @@ def validate_code(request):
                 "function_id": function_id
             })
 
-            print(result)
+            #print(result)
 
             error_message = result.get("error", None)
 
@@ -814,7 +882,7 @@ def validate_code(request):
             
             # Add deadline check
 
-            print(passed, timestamp, user_email, course, class_number, exercise_number, submission_id, error_message)
+            #print(passed, timestamp, user_email, course, class_number, exercise_number, submission_id, error_message)
             log_to_sheets([
                 timestamp,
                 user_email,
