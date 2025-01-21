@@ -48,14 +48,6 @@ deadlines_data = fetch_json(deadlines_url)
 OPENAI_GPT_MODEL = os.environ.get("OPENAI_GPT_MODEL")
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
-#credentials = json.loads(os.environ.get('GOOGLE_CREDENTIALS'))
-#flow = Flow.from_client_config(
-#    credentials,
-#    scopes=["https://www.googleapis.com/auth/userinfo.email"],
-#    redirect_uri="https://seal-app-pmncf.ondigitalocean.app/callback"
-#)
-
-
 def get_reflection_history(course: str) -> List[str]:
     """Retrieve previous passing reflection answers from Google Sheets."""
     try:
@@ -811,7 +803,6 @@ def validate_code(request):
     try:
         # Check if this is a reflection question
         is_reflection = "-R" in function_id
-
         if is_reflection:
             # Handle reflection submission
             evaluation = prompt_completion(
@@ -826,14 +817,12 @@ def validate_code(request):
                 result = {
                     "passed": evaluation_dict["passed"],
                     "feedback": evaluation_dict["feedback"],
-                    "reflection_text": user_prompt  # Store the original reflection
+                    "reflection_text": user_prompt
                 }
             except json.JSONDecodeError:
                 return jsonify({"error": "Invalid evaluation format from AI"}), 500
 
-            timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-            class_number, exercise_number = function_id.split("-")
-            submission_id = f"{user_email}_{function_id}"
+            
             
             # Log reflection to sheets with different column structure
             log_to_sheets([
