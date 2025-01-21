@@ -16,6 +16,7 @@ from googleapiclient.discovery import build
 from openai import OpenAI
 import google.auth
 from google.cloud import secretmanager
+import hashlib
 
 def access_secret(project_id, secret_id, version_id="latest"):
     client = secretmanager.SecretManagerServiceClient()
@@ -165,11 +166,21 @@ def prompt_completion(user_prompt, is_reflection=False, course=None, class_numbe
     return generated_response
 
 
+def hash_email(email: str, salt: str) -> str:
+    """Hash email with provided salt using SHA-256."""
+    return hashlib.sha256(f"{email}{salt}".encode()).hexdigest()
 
 def log_to_sheets(row_data):
     """
     Logs a row of data to Google Sheets
     """
+    # Get salt from environment variable
+    salt = os.environ.get("EMAIL_HASH_SALT", "")
+    if not salt:
+        print("Warning: EMAIL_HASH_SALT not set, using empty salt")
+    
+    # Add hashed email as the last column
+    row_data.append(hash_email(row_data[1], salt))  # row_data[1] contains the email
 
     submission_credentials = json.loads(access_secret(
         project_id="autograde-314802",
@@ -178,7 +189,7 @@ def log_to_sheets(row_data):
 
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
     SPREADSHEET_ID = '1IwvQoqdMUklaw5P2CZH7YWKdeZhhehJljd1TdI0RDP0'
-    RANGE_NAME = 'records!A:L'
+    RANGE_NAME = 'records!A:M'  # Updated to include the new hashed email column
 
     try:
         # Load credentials from service account file
@@ -755,8 +766,6 @@ def validate_code(request):
         # Verify Google token
         response = requests.get(f"https://oauth2.googleapis.com/tokeninfo?access_token={token}")
         if response.status_code != 200:
-            #print(f"response: {response}")
-            #print(f"status code: {response.status_code}")
             return jsonify({"error": "Invalid token"}), 403
 
         token_info = response.json()
