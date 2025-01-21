@@ -168,14 +168,14 @@ def prompt_completion(user_prompt, is_reflection=False, course=None, class_numbe
 
 def hash_email(email: str, salt: str) -> str:
     """Hash email with provided salt using SHA-256."""
-    return hashlib.sha256(f"{email}{salt}".encode()).hexdigest()
+    return hashlib.md5(f"{email}{salt}".encode()).hexdigest()
 
 def log_to_sheets(row_data):
     """
     Logs a row of data to Google Sheets
     """
     # Get salt from environment variable
-    salt = os.environ.get("EMAIL_HASH_SALT", "")
+    salt = access_secret(project_id="autograde-314802", secret_id="EMAIL_HASH_SALT")
     if not salt:
         print("Warning: EMAIL_HASH_SALT not set, using empty salt")
     
