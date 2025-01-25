@@ -1,4 +1,4 @@
-deepseek==1.0.0
+deepseek-sdk==0.1.0
 markupsafe
 flask>=2.0.0
 numpy>=1.21.0
