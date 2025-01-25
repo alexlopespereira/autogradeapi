@@ -174,13 +174,14 @@ def prompt_completion(user_prompt, is_reflection=False, course=None, class_numbe
             secret_id="DEEPSEEK_API_KEY"
         )
         try:
-            from deepseek import DeepSeekClient
-            client = DeepSeekClient(api_key=api_key)
+            client = OpenAI(
+                api_key=api_key, 
+                base_url="https://api.deepseek.com/v1"  # Added /v1 to match DeepSeek's API endpoint
+            )
             
             response = client.chat_completion(
                 model="deepseek-reasoner",  # or your preferred DeepSeek model
                 messages=[{"role": "user", "content": content}],
-                temperature=0.7,
                 max_tokens=2500
             )
             generated_response = response.choices[0].message.content.strip()
