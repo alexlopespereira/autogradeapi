@@ -49,8 +49,8 @@ deadlines_data = fetch_json(deadlines_url)
 OPENAI_GPT_MODEL = os.environ.get("OPENAI_GPT_MODEL")
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
-def get_reflection_history(course: str) -> List[str]:
-    """Retrieve previous passing reflection answers from Google Sheets."""
+def get_reflection_history(course: str, user_email: str) -> List[str]:
+    """Retrieve previous passing reflection answers from Google Sheets for a specific user."""
     try:
         # Get credentials
         submission_credentials = json.loads(access_secret(
@@ -84,14 +84,15 @@ def get_reflection_history(course: str) -> List[str]:
         passing_reflections = []
         for row in rows:
             if len(row) >= 12:  # Ensure row has all needed columns
+                row_email = row[1]
                 row_course = row[2]
-                row_class = row[3]
                 row_exercise = row[4]
                 row_passed = row[6].lower() == 'true'
                 reflection_text = row[11]
                 
-                # Check if this is a reflection exercise for the specified course and class
+                # Check if this is a reflection exercise for the specified course and user
                 if (row_course == course and 
+                    row_email == user_email and
                     'R' in row_exercise and 
                     row_passed and 
                     reflection_text.strip()):
@@ -103,19 +104,15 @@ def get_reflection_history(course: str) -> List[str]:
         print(f"Error retrieving reflection history: {str(e)}")
         return []
 
-def prompt_completion(user_prompt, is_reflection=False, course=None, class_number=None):
-    """Generate code or evaluate reflection using OpenAI API."""
-    api_key = access_secret(
-        project_id="autograde-314802",
-        secret_id="OPENAI_API_KEY"
-    )
-    client = OpenAI(api_key=api_key)
+def prompt_completion(user_prompt, is_reflection=False, course=None, class_number=None, user_email=None):
+    """Generate code or evaluate reflection using specified LLM API."""
+    llm_provider = os.environ.get("LLM_PROVIDER", "OPENAI").upper()  # Default to OPENAI if not set
     
     if is_reflection:
         # Get previous passing reflections
         previous_reflections = []
-        if course and class_number:
-            previous_reflections = get_reflection_history(course)
+        if course and user_email:
+            previous_reflections = get_reflection_history(course, user_email)
         
         previous_reflections_text = "\n\n".join([
             f"Previous passing reflection #{i+1}:\n{text}"
@@ -130,9 +127,9 @@ def prompt_completion(user_prompt, is_reflection=False, course=None, class_numbe
         - Specific concepts mentioned
         - Connection between ideas
         - Personal insights
-        - Originality (the answer should not be too similar to previous passing answers)
+        - Originality (the answer should not be too similar to the student's previous passing answers)
         
-        Here are the previous passing reflections for reference:
+        Here are the student's previous passing reflections for reference:
         {previous_reflections_text}
         
         Return a JSON with two fields:
@@ -143,25 +140,62 @@ def prompt_completion(user_prompt, is_reflection=False, course=None, class_numbe
         {user_prompt}"""
     else:
         content = f"In your answer do not return in hypertext format, return only raw text. Do not produce code for importing packages, all the allowed packages are already imported. Do not create code for testing the function. Write a Python function for the following prompt:\n{user_prompt}"
-    
-    response = client.chat.completions.create(
-        model=OPENAI_GPT_MODEL,
-        messages=[{"role": "user", "content": content}],
-        max_completion_tokens=2500
-    )
-    
-    generated_response = response.choices[0].message.content.strip().replace("```", "")
-    if not generated_response:
-        print("prompt completion with o1-mini failed, retrying with gpt-4o-mini")
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": content}],
-            max_completion_tokens=2500
+
+    if llm_provider == "OPENAI":
+        api_key = access_secret(
+            project_id="autograde-314802",
+            secret_id="OPENAI_API_KEY"
         )
-        generated_response = response.choices[0].message.content.strip().replace("```", "") 
-        print(f"gpt-4o-mini: {generated_response}")
-        if not generated_response:
-            raise Exception("The generated code is empty. You probably sent a too large prompt.")
+        client = OpenAI(api_key=api_key)
+        
+        try:
+            response = client.chat.completions.create(
+                model=OPENAI_GPT_MODEL,
+                messages=[{"role": "user", "content": content}],
+                max_completion_tokens=2500
+            )
+            generated_response = response.choices[0].message.content.strip()
+            
+            if not generated_response:
+                print("prompt completion with o1-mini failed, retrying with gpt-4o-mini")
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": content}],
+                    max_completion_tokens=2500
+                )
+                generated_response = response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"OpenAI API error: {str(e)}")
+            raise
+            
+    elif llm_provider == "DEEPSEEK":
+        api_key = access_secret(
+            project_id="autograde-314802",
+            secret_id="DEEPSEEK_API_KEY"
+        )
+        try:
+            from deepseek import DeepSeekClient
+            client = DeepSeekClient(api_key=api_key)
+            
+            response = client.chat_completion(
+                model="deepseek-reasoner",  # or your preferred DeepSeek model
+                messages=[{"role": "user", "content": content}],
+                temperature=0.7,
+                max_tokens=2500
+            )
+            generated_response = response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"DeepSeek API error: {str(e)}")
+            raise
+            
+    else:
+        raise ValueError(f"Unsupported LLM provider: {llm_provider}. Supported providers are: OPENAI, DEEPSEEK")
+
+    # Remove any markdown code block formatting
+    generated_response = generated_response.replace("```", "")
+    
+    if not generated_response:
+        raise Exception("The generated response is empty. You probably sent a too large prompt.")
     
     return generated_response
 
@@ -818,7 +852,8 @@ def validate_code(request):
                 user_prompt, 
                 is_reflection=True,
                 course=course,
-                class_number=class_number
+                class_number=class_number,
+                user_email=user_email
             )
             evaluation = re.sub(r"^json\s*", "", evaluation)
             try:
@@ -853,7 +888,7 @@ def validate_code(request):
 
         else:
             # Generate code from prompt
-            generated_code = prompt_completion(user_prompt)
+            generated_code = prompt_completion(user_prompt, user_email=user_email)
             generated_code = re.sub(r"^python\s*", "", generated_code)
             #print(f"generated code: {generated_code}")
 
