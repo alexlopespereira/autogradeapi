@@ -17,6 +17,7 @@ from openai import OpenAI
 import google.auth
 from google.cloud import secretmanager
 import hashlib
+import io
 
 def access_secret(project_id, secret_id, version_id="latest"):
     client = secretmanager.SecretManagerServiceClient()
@@ -36,6 +37,26 @@ def round_down(n, decimals=1):
     multiplier = 10 ** decimals
     return math.floor(n * multiplier) / multiplier
 
+    
+def load_teacher_prompts() -> List[Dict[str, Any]]:
+    """Fetch the teacher's prompt from local answer_prompts.json file."""
+    try:
+        # Get the directory where the Cloud Function code is deployed
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        json_path = os.path.join(current_dir, 'answer_prompts.json')
+        
+        # Read the JSON file
+        with open(json_path, 'r', encoding='utf-8') as f:
+            prompts = json.load(f)
+        
+        return prompts
+
+    except Exception as e:
+        print(f"Error fetching teacher prompt: {str(e)}")
+        return None
+
+
+
 FORBIDDEN_KEYWORDS = ["eval", "exec", "os", "sys", "subprocess"]
 users_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/users.json"
 courses_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/courses.json"
@@ -46,8 +67,34 @@ users_data = fetch_json(users_url)
 courses_data = fetch_json(courses_url)
 deadlines_data = fetch_json(deadlines_url)
 
+teacher_prompts = load_teacher_prompts()
+
 OPENAI_GPT_MODEL = os.environ.get("OPENAI_GPT_MODEL")
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+
+llm_provider = os.environ.get("LLM_PROVIDER", "OPENAI").upper()
+
+openai_client = OpenAI(api_key=access_secret(
+            project_id="autograde-314802",
+            secret_id="OPENAI_API_KEY"
+        ))
+
+deepseek_client = OpenAI(
+    api_key=access_secret(
+            project_id="autograde-314802",
+            secret_id="DEEPSEEK_API_KEY"
+        ),
+    base_url="https://api.deepseek.com/v1"
+)
+
+def get_teacher_prompt(function_id: str) -> str:
+    """Fetch the teacher's prompt from local answer_prompts.json file."""
+    # Find matching prompt
+    for prompt_data in teacher_prompts:
+        if prompt_data["function_id"] == function_id:
+            return prompt_data["prompt"], prompt_data["code"]
+    return None
+
 
 def get_reflection_history(course: str, user_email: str) -> List[str]:
     """Retrieve previous passing reflection answers from Google Sheets for a specific user."""
@@ -104,9 +151,11 @@ def get_reflection_history(course: str, user_email: str) -> List[str]:
         print(f"Error retrieving reflection history: {str(e)}")
         return []
 
-def prompt_completion(user_prompt, is_reflection=False, course=None, class_number=None, user_email=None):
+
+
+def prompt_completion(user_prompt, is_reflection=False, course=None, class_number=None, user_email=None, provider="DEEPSEEK"):
     """Generate code or evaluate reflection using specified LLM API."""
-    llm_provider = os.environ.get("LLM_PROVIDER", "OPENAI").upper()  # Default to OPENAI if not set
+    
     
     if is_reflection:
         # Get previous passing reflections
@@ -140,57 +189,27 @@ def prompt_completion(user_prompt, is_reflection=False, course=None, class_numbe
         {user_prompt}"""
     else:
         content = f"In your answer do not return in hypertext format, return only raw text. Do not produce code for importing packages, all the allowed packages are already imported. Do not create code for testing the function. Write a Python function for the following prompt:\n{user_prompt}"
-
-    if llm_provider == "OPENAI":
-        api_key = access_secret(
-            project_id="autograde-314802",
-            secret_id="OPENAI_API_KEY"
+    client = openai_client if provider == "OPENAI" else deepseek_client
+    try:
+        response = client.chat.completions.create(
+            model=OPENAI_GPT_MODEL if provider == "OPENAI" else "deepseek-reasoner",
+            messages=[{"role": "user", "content": content}],
+            max_tokens=2500
         )
-        client = OpenAI(api_key=api_key)
+        generated_response = response.choices[0].message.content.strip()
         
-        try:
+        if not generated_response:
+            print("prompt completion with o1-mini failed, retrying with gpt-4o-mini")
             response = client.chat.completions.create(
-                model=OPENAI_GPT_MODEL,
-                messages=[{"role": "user", "content": content}],
-                max_completion_tokens=2500
-            )
-            generated_response = response.choices[0].message.content.strip()
-            
-            if not generated_response:
-                print("prompt completion with o1-mini failed, retrying with gpt-4o-mini")
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": content}],
-                    max_completion_tokens=2500
-                )
-                generated_response = response.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"OpenAI API error: {str(e)}")
-            raise
-            
-    elif llm_provider == "DEEPSEEK":
-        api_key = access_secret(
-            project_id="autograde-314802",
-            secret_id="DEEPSEEK_API_KEY"
-        )
-        try:
-            client = OpenAI(
-                api_key=api_key, 
-                base_url="https://api.deepseek.com/v1"  # Added /v1 to match DeepSeek's API endpoint
-            )
-            
-            response = client.chat_completion(
-                model="deepseek-reasoner",  # or your preferred DeepSeek model
+                model="gpt-4o-mini",
                 messages=[{"role": "user", "content": content}],
                 max_tokens=2500
             )
             generated_response = response.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"DeepSeek API error: {str(e)}")
-            raise
             
-    else:
-        raise ValueError(f"Unsupported LLM provider: {llm_provider}. Supported providers are: OPENAI, DEEPSEEK")
+    except Exception as e:
+        print(f"{provider} API error: {str(e)}")
+        raise
 
     # Remove any markdown code block formatting
     generated_response = generated_response.replace("```", "")
@@ -758,10 +777,52 @@ def analyze_code_safety(code):
         return False, f"Syntax error in code: {e}"
 
 
+def get_prompt_feedback(student_prompt: str, teacher_prompt: str, student_code: str, teacher_code: str, passed: bool, provider="OPENAI") -> str:
+    """Generate constructive feedback by comparing student and teacher prompts."""
+    
+    content = f"""You are a helpful teaching assistant. Compare the following two prompts and provide constructive feedback:
+
+Teacher's prompt: {teacher_prompt}
+Student's prompt: {student_prompt}
+
+code generated with student's prompt: {student_code}
+code generated with teacher's prompt: {teacher_code}
+
+Passed: {passed}
+
+If the student did not pass, analyze the differences and provide feedback that:
+1. Does NOT reveal the actual solution or teacher's prompt
+2. Asks guiding questions about missing key elements
+3. Points out areas where clarity could be improved
+4. Points out areas where the code generated with student's prompt is not correct
+
+If the student did pass, analyze the differences and provide feedback that:
+1. Reminds about good prompt writing practices
+2. Points out areas where clarity could be improved
+
+Return only the feedback, written in a supportive and encouraging tone. Be concise. Always answer in brazilian Portuguese."""
+    client = openai_client if provider == "OPENAI" else deepseek_client
+    try:
+        response = client.chat.completions.create(
+            model=OPENAI_GPT_MODEL if provider == "OPENAI" else "deepseek-reasoner",
+            messages=[{"role": "user", "content": content}],
+            max_tokens=500
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Error generating prompt feedback: {str(e)}")
+        return None
+
+def get_google_credentials():
+    """Fetch Google service account credentials from Secret Manager."""
+    client = secretmanager.SecretManagerServiceClient()
+    name = "projects/ipynb-autograde/secrets/GOOGLE_SUBMISSION_CREDENTIALS/versions/latest"
+    response = client.access_secret_version(request={"name": name})
+    return json.loads(response.payload.data.decode("UTF-8"))
 
 
 @functions_framework.http
-def validate_code(request):
+def validate_code_dev(request):
     """Cloud function to validate student code."""
     # Set CORS headers for the preflight request
     if request.method == 'OPTIONS':
@@ -812,7 +873,6 @@ def validate_code(request):
         if email not in AUTHORIZED_USERS:  # Changed from using session to direct check
             return jsonify({"error": "Unauthorized user"}), 403
 
-        #print(f'Welcome, {email}!')
 
     except Exception as e:
         print(f"Token validation error: {e}")
@@ -888,25 +948,20 @@ def validate_code(request):
             return jsonify(result)
 
         else:
-            # Generate code from prompt
-            generated_code = prompt_completion(user_prompt, user_email=user_email)
+            # Get teacher's prompt and generate feedback
+            teacher_prompt, teacher_code = get_teacher_prompt(function_id)
+            prompt_feedback = None
+            # Generate code from student's prompt
+            generated_code = prompt_completion(user_prompt, user_email=user_email, provider="DEEPSEEK")
             generated_code = re.sub(r"^python\s*", "", generated_code)
-            #print(f"generated code: {generated_code}")
-
+            
             # Validate request data
             is_safe, error_message = analyze_code_safety(generated_code)
             if not is_safe:
                 return jsonify({"error": f"Unsafe code: {error_message}"}), 400
-
             
             # Return cloud function response
             result = call_python({"code": generated_code, "function_id": function_id})
-            result.update({
-                "user_email": user_email,
-                "function_id": function_id
-            })
-
-            #print(result)
 
             error_message = result.get("error", None)
 
@@ -914,9 +969,16 @@ def validate_code(request):
             if "test_results" in result and result["test_results"]:
                 passed = all(test.get("passed", False) for test in result["test_results"])
             
-            # Add deadline check
+                        # Get feedback comparing both prompts and their generated code
+            prompt_feedback = get_prompt_feedback(user_prompt, teacher_prompt, generated_code, teacher_code, passed, provider="OPENAI")
+            
+            result.update({
+                "user_email": user_email,
+                "function_id": function_id,
+                "prompt_feedback": prompt_feedback
+            })
 
-            #print(passed, timestamp, user_email, course, class_number, exercise_number, submission_id, error_message)
+            # Add deadline check
             log_to_sheets([
                 timestamp,
                 user_email,

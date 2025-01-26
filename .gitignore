@@ -4,3 +4,13 @@ key.json
 .env
 client_secret_oauth.json
 autograde-submission-key.json
+answer_prompts.json
+data/Soluções/Aula2.txt
+data/Soluções/Aula3.txt
+data/Soluções/Aula4.txt
+data/Soluções/Aula5.txt
+data/Soluções/Aula6.txt
+data/Soluções/Aula7.txt
+data/Soluções/Aula8.txt
+data/Soluções/Aula9.txt
+data/Soluções/*
