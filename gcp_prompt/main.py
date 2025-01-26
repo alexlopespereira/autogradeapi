@@ -822,7 +822,7 @@ def get_google_credentials():
 
 
 @functions_framework.http
-def validate_code_dev(request):
+def validate_code(request):
     """Cloud function to validate student code."""
     # Set CORS headers for the preflight request
     if request.method == 'OPTIONS':
