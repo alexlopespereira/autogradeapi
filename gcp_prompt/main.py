@@ -800,7 +800,7 @@ If the student did pass, analyze the differences and provide feedback that:
 1. Reminds about good prompt writing practices
 2. Points out areas where clarity could be improved
 
-Return only the feedback, written in a supportive and encouraging tone. Be concise. Always answer in brazilian Portuguese."""
+Do not greet the user the student. Do not write motivational messages at the end. Return only the feedback, written in a supportive tone. Be concise. Always answer in brazilian Portuguese."""
     client = openai_client if provider == "OPENAI" else deepseek_client
     try:
         response = client.chat.completions.create(
@@ -847,7 +847,6 @@ def validate_code(request):
             authorized_users.update(users_data.get(course, []))
 
         AUTHORIZED_USERS = authorized_users
-        #print("AUTHORIZED_USERS updated successfully:", AUTHORIZED_USERS)
 
     except Exception as e:
         print(f"An error occurred: {e}")
@@ -908,6 +907,7 @@ def validate_code(request):
         # Check if this is a reflection question
         is_reflection = "-R" in function_id
         if is_reflection:
+            print("Reflection question")
             # Handle reflection submission
             evaluation = prompt_completion(
                 user_prompt, 
@@ -927,8 +927,6 @@ def validate_code(request):
             except json.JSONDecodeError:
                 return jsonify({"error": "Invalid evaluation format from AI"}), 500
 
-            
-            
             # Log reflection to sheets with different column structure
             log_to_sheets([
                 timestamp,
@@ -949,10 +947,9 @@ def validate_code(request):
 
         else:
             # Get teacher's prompt and generate feedback
-            teacher_prompt, teacher_code = get_teacher_prompt(function_id)
-            prompt_feedback = None
+            #print("Not reflection question")
             # Generate code from student's prompt
-            generated_code = prompt_completion(user_prompt, user_email=user_email, provider="DEEPSEEK")
+            generated_code = prompt_completion(user_prompt, user_email=user_email, provider="OPENAI")
             generated_code = re.sub(r"^python\s*", "", generated_code)
             
             # Validate request data
@@ -970,14 +967,19 @@ def validate_code(request):
                 passed = all(test.get("passed", False) for test in result["test_results"])
             
                         # Get feedback comparing both prompts and their generated code
-            prompt_feedback = get_prompt_feedback(user_prompt, teacher_prompt, generated_code, teacher_code, passed, provider="OPENAI")
-            
+            if not passed:
+                teacher_prompt, teacher_code = get_teacher_prompt(function_id)
+                prompt_feedback = get_prompt_feedback(user_prompt, teacher_prompt, generated_code, teacher_code, passed, provider="OPENAI")
+            else:
+                prompt_feedback = None
+
             result.update({
                 "user_email": user_email,
                 "function_id": function_id,
-                "prompt_feedback": prompt_feedback
+                "prompt_feedback": prompt_feedback,
+                "generated_code": generated_code
             })
-
+            #print("Result:", result)
             # Add deadline check
             log_to_sheets([
                 timestamp,
