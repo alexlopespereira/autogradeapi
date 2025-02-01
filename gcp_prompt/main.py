@@ -153,7 +153,7 @@ def get_reflection_history(course: str, user_email: str) -> List[str]:
 
 
 
-def prompt_completion(user_prompt, is_reflection=False, course=None, class_number=None, user_email=None, provider="DEEPSEEK"):
+def prompt_completion(user_prompt, is_reflection=False, course=None, class_number=None, user_email=None, provider="OPENAI"):
     """Generate code or evaluate reflection using specified LLM API."""
     
     
@@ -647,6 +647,7 @@ class TestCaseValidator:
 
             full_code = f"""
 import pandas as pd
+from pandas import date_range
 import numpy as np
 import requests
 import math
@@ -795,6 +796,7 @@ If the student did not pass, analyze the differences and provide feedback that:
 2. Asks guiding questions about missing key elements
 3. Points out areas where clarity could be improved
 4. Points out areas where the code generated with student's prompt is not correct
+Choose two of the above criteria to return as feedback to the student. Choose the two criteria causes the most differences between the student's and teacher's code.
 
 If the student did pass, analyze the differences and provide feedback that:
 1. Reminds about good prompt writing practices
@@ -967,11 +969,11 @@ def validate_code(request):
                 passed = all(test.get("passed", False) for test in result["test_results"])
             
                         # Get feedback comparing both prompts and their generated code
-            if not passed:
-                teacher_prompt, teacher_code = get_teacher_prompt(function_id)
-                prompt_feedback = get_prompt_feedback(user_prompt, teacher_prompt, generated_code, teacher_code, passed, provider="OPENAI")
-            else:
-                prompt_feedback = None
+            #if not passed:
+            teacher_prompt, teacher_code = get_teacher_prompt(function_id)
+            prompt_feedback = get_prompt_feedback(user_prompt, teacher_prompt, generated_code, teacher_code, passed, provider="OPENAI")
+            #else:
+            #    prompt_feedback = None
 
             result.update({
                 "user_email": user_email,

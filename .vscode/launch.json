@@ -11,6 +11,7 @@
                 "FLASK_ENV": "development",
                 "FLASK_DEBUG": "1"
             },
+	    "envFile": "${workspaceFolder}/.env",
             "args": [
                 "run",
                 "--no-debugger",
