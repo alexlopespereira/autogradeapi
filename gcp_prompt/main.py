@@ -457,18 +457,24 @@ def validate_dataframe(df: pd.DataFrame, expected_format: dict) -> Tuple[bool, L
 class TestCaseValidator:
     TEST_CASES_URL = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/questions.json"
 
-    def __init__(self, function_id: str):
+    def __init__(self, function_id: str, course: str):
         """Initialize validator with function_id and fetch relevant test cases."""
         self.function_id = function_id
+        self.course = course
         self.test_cases = self._fetch_test_cases()
 
     def _fetch_test_cases(self) -> List[Dict[str, Any]]:
-        """Fetch and filter test cases for the specified function_id."""
+        """Fetch and filter test cases for the specified function_id and course."""
         try:
             response = requests.get(self.TEST_CASES_URL)
             response.raise_for_status()
-            all_test_cases = response.json()
-            return [tc for tc in all_test_cases if tc.get("function_id") == self.function_id]
+            all_courses_test_cases = response.json()
+            
+            # Select test cases for the specific course
+            course_test_cases = all_courses_test_cases.get(self.course, [])
+            
+            # Filter by function_id
+            return [tc for tc in course_test_cases if tc.get("function_id") == self.function_id]
         except Exception as e:
             print(f"Error fetching test cases: {str(e)}")
             return []
@@ -740,7 +746,7 @@ from collections import defaultdict
             }
 
 
-def call_python(data):
+def call_python(data, course: str):
     """Cloud Function to execute and validate Python code against test cases."""
     # data = request.get_json()
     code = data.get("code")
@@ -753,7 +759,7 @@ def call_python(data):
         }
 
     # Initialize validator and run validation with timeout handling
-    validator = TestCaseValidator(function_id)
+    validator = TestCaseValidator(function_id, course)
     result = validator.run_validation(code)
 
     if result["status"] == "error":
@@ -960,7 +966,7 @@ def validate_code(request):
                 return jsonify({"error": f"Unsafe code: {error_message}"}), 400
             
             # Return cloud function response
-            result = call_python({"code": generated_code, "function_id": function_id})
+            result = call_python({"code": generated_code, "function_id": function_id}, course=course)
 
             error_message = result.get("error", None)
 
