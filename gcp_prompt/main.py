@@ -49,7 +49,6 @@ def load_teacher_prompts() -> List[Dict[str, Any]]:
         with open(json_path, 'r', encoding='utf-8') as f:
             prompts = json.load(f)
         
-        print(f"Loaded {len(prompts)} teacher prompts")
         return prompts
 
     except Exception as e:
@@ -91,11 +90,8 @@ deepseek_client = OpenAI(
 def get_teacher_prompt(function_id: str) -> str:
     """Fetch the teacher's prompt from local answer_prompts.json file."""
     # Find matching prompt
-    print(f"Function ID: {function_id}")
     for prompt_data in teacher_prompts:
-        print(f"Prompt data: {prompt_data}")
         if prompt_data["function_id"] == function_id:
-            print(f"Found matching prompt: {prompt_data}")
             return prompt_data["prompt"], prompt_data["code"]
     return None
 
@@ -110,7 +106,10 @@ def get_reflection_history(course: str, user_email: str) -> List[str]:
         ))
 
         SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-        SPREADSHEET_ID = '1IwvQoqdMUklaw5P2CZH7YWKdeZhhehJljd1TdI0RDP0'
+        SPREADSHEET_ID = access_secret(
+            project_id="autograde-314802",
+            secret_id="SPREADSHEET_ID"
+        )
         RANGE_NAME = 'records!A:L'  # All columns
 
         # Load credentials from service account file
@@ -246,7 +245,10 @@ def log_to_sheets(row_data):
     ))
 
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-    SPREADSHEET_ID = '1IwvQoqdMUklaw5P2CZH7YWKdeZhhehJljd1TdI0RDP0'
+    SPREADSHEET_ID = access_secret(
+        project_id="autograde-314802",
+        secret_id="SPREADSHEET_ID"
+    )
     RANGE_NAME = 'records!A:M'  # Updated to include the new hashed email column
 
     try:
@@ -764,10 +766,7 @@ def call_python(data, course: str):
 
     # Initialize validator and run validation with timeout handling
     validator = TestCaseValidator(function_id, course)
-    print(f"Validator: {validator}")    
     result = validator.run_validation(code)
-    print(f"Result: {result}")
-
     if result["status"] == "error":
         return result
 
@@ -842,7 +841,7 @@ def get_google_credentials():
 def validate_code(request):
     """Cloud function to validate student code."""
     # Set CORS headers for the preflight request
-    """ if request.method == 'OPTIONS':
+    if request.method == 'OPTIONS':
         headers = {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'POST',
@@ -854,7 +853,7 @@ def validate_code(request):
     # Set CORS headers for the main request
     headers = {
         'Access-Control-Allow-Origin': '*'
-    } """
+    } 
 
     try:
         valid_courses = courses_data.get("courses", [])
@@ -868,9 +867,7 @@ def validate_code(request):
     except Exception as e:
         print(f"An error occurred: {e}")
 
-    print(f"Authorized users: {AUTHORIZED_USERS}")
-
-    """ auth_header = request.headers.get("Authorization")
+    auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         return jsonify({"error": "Missing or invalid Authorization header"}), 401
 
@@ -895,18 +892,13 @@ def validate_code(request):
     except Exception as e:
         print(f"Token validation error: {e}")
         return jsonify({"error": "Invalid token"}), 403
- """
+
     try:
         data = request.get_json()
         user_prompt = data.get("prompt")
         function_id = data.get("function_id")
         user_email = data.get("user_email")
         course = data.get("course")
-
-        print(f"User email: {user_email}")
-        print(f"User prompt: {user_prompt}")
-        print(f"Function ID: {function_id}")
-        print(f"Course: {course}")
 
         if not all([user_prompt, function_id, user_email, course]):
             return jsonify({
@@ -931,7 +923,6 @@ def validate_code(request):
         # Check if this is a reflection question
         is_reflection = "-R" in function_id
         if is_reflection:
-            print("Reflection question")
             # Handle reflection submission
             evaluation = prompt_completion(
                 user_prompt, 
@@ -985,31 +976,21 @@ def validate_code(request):
                 return jsonify({"error": f"Unsafe code: {error_message}"}), 400
             
             # Return cloud function response
-            print(f"Generated code: {generated_code}")
             result = call_python({"code": generated_code, "function_id": function_id}, course=course)
-            print(f"Result: {result}")
             error_message = result.get("error", None)
-            print(f"Error message: {error_message}")
             passed = False
             if "test_results" in result and result["test_results"]:
                 passed = all(test.get("passed", False) for test in result["test_results"])
             print(f"Passed: {passed}")
             # Get feedback comparing both prompts and their generated code
-            #if not passed:
             teacher_prompt, teacher_code = get_teacher_prompt(function_id)
-            print(f"Teacher prompt: {teacher_prompt}")
-            print(f"Teacher code: {teacher_code}")
             prompt_feedback = get_prompt_feedback(user_prompt, teacher_prompt, generated_code, teacher_code, passed, provider="OPENAI")
-            #else:
-            #    prompt_feedback = None
-            print(f"Prompt feedback: {prompt_feedback}")
             result.update({
                 "user_email": user_email,
                 "function_id": function_id,
                 "prompt_feedback": prompt_feedback,
                 "generated_code": generated_code
             })
-            #print("Result:", result)
             # Add deadline check
             log_to_sheets([
                 timestamp,

@@ -30,7 +30,7 @@ def process_prompts():
             try:
                 print(f"Processando prompt: {item['prompt'][:50]}...")
                 response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",  # Ou o modelo que preferir
+                    model="gpt-5",  # Ou o modelo que preferir
                     messages=[
                         {"role": "system", "content": "You are a helpful assistant that provides only Python code based on the user's prompt. Do not include any markdown, formatting, or explanations."},                        
                         {"role": "user", "content": item['prompt']}
