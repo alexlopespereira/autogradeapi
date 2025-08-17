@@ -2,6 +2,7 @@
 __pycache__/*
 key.json
 .env
+.vscode/*
 client_secret_oauth.json
 autograde-submission-key.json
 answer_prompts.json

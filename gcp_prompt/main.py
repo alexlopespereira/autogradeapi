@@ -49,6 +49,7 @@ def load_teacher_prompts() -> List[Dict[str, Any]]:
         with open(json_path, 'r', encoding='utf-8') as f:
             prompts = json.load(f)
         
+        print(f"Loaded {len(prompts)} teacher prompts")
         return prompts
 
     except Exception as e:
@@ -90,8 +91,11 @@ deepseek_client = OpenAI(
 def get_teacher_prompt(function_id: str) -> str:
     """Fetch the teacher's prompt from local answer_prompts.json file."""
     # Find matching prompt
+    print(f"Function ID: {function_id}")
     for prompt_data in teacher_prompts:
+        print(f"Prompt data: {prompt_data}")
         if prompt_data["function_id"] == function_id:
+            print(f"Found matching prompt: {prompt_data}")
             return prompt_data["prompt"], prompt_data["code"]
     return None
 
@@ -194,16 +198,16 @@ def prompt_completion(user_prompt, is_reflection=False, course=None, class_numbe
         response = client.chat.completions.create(
             model=OPENAI_GPT_MODEL if provider == "OPENAI" else "deepseek-reasoner",
             messages=[{"role": "user", "content": content}],
-            max_tokens=2500
+            max_completion_tokens=2500
         )
         generated_response = response.choices[0].message.content.strip()
         
         if not generated_response:
             print("prompt completion with o1-mini failed, retrying with gpt-4o-mini")
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-5",
                 messages=[{"role": "user", "content": content}],
-                max_tokens=2500
+                max_completion_tokens=2500
             )
             generated_response = response.choices[0].message.content.strip()
             
@@ -760,7 +764,9 @@ def call_python(data, course: str):
 
     # Initialize validator and run validation with timeout handling
     validator = TestCaseValidator(function_id, course)
+    print(f"Validator: {validator}")    
     result = validator.run_validation(code)
+    print(f"Result: {result}")
 
     if result["status"] == "error":
         return result
@@ -782,6 +788,9 @@ def analyze_code_safety(code):
         if "unterminated string literal" in str(e):
             return True, None
         return False, f"Syntax error in code: {e}"
+    except Exception as e:
+        print(f"An unexpected error occurred in analyze_code_safety: {e}")
+        return False, f"An unexpected error occurred during code analysis: {e}"
 
 
 def get_prompt_feedback(student_prompt: str, teacher_prompt: str, student_code: str, teacher_code: str, passed: bool, provider="OPENAI") -> str:
@@ -814,7 +823,7 @@ Do not greet the user the student. Do not write motivational messages at the end
         response = client.chat.completions.create(
             model=OPENAI_GPT_MODEL if provider == "OPENAI" else "deepseek-reasoner",
             messages=[{"role": "user", "content": content}],
-            max_tokens=500
+            max_completion_tokens=500
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -833,7 +842,7 @@ def get_google_credentials():
 def validate_code(request):
     """Cloud function to validate student code."""
     # Set CORS headers for the preflight request
-    if request.method == 'OPTIONS':
+    """ if request.method == 'OPTIONS':
         headers = {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'POST',
@@ -845,7 +854,7 @@ def validate_code(request):
     # Set CORS headers for the main request
     headers = {
         'Access-Control-Allow-Origin': '*'
-    }
+    } """
 
     try:
         valid_courses = courses_data.get("courses", [])
@@ -859,7 +868,9 @@ def validate_code(request):
     except Exception as e:
         print(f"An error occurred: {e}")
 
-    auth_header = request.headers.get("Authorization")
+    print(f"Authorized users: {AUTHORIZED_USERS}")
+
+    """ auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         return jsonify({"error": "Missing or invalid Authorization header"}), 401
 
@@ -884,13 +895,18 @@ def validate_code(request):
     except Exception as e:
         print(f"Token validation error: {e}")
         return jsonify({"error": "Invalid token"}), 403
-
+ """
     try:
         data = request.get_json()
         user_prompt = data.get("prompt")
         function_id = data.get("function_id")
         user_email = data.get("user_email")
         course = data.get("course")
+
+        print(f"User email: {user_email}")
+        print(f"User prompt: {user_prompt}")
+        print(f"Function ID: {function_id}")
+        print(f"Course: {course}")
 
         if not all([user_prompt, function_id, user_email, course]):
             return jsonify({
@@ -935,6 +951,9 @@ def validate_code(request):
             except json.JSONDecodeError:
                 return jsonify({"error": "Invalid evaluation format from AI"}), 500
 
+            
+            print(f"Evaluation result: {result}")
+
             # Log reflection to sheets with different column structure
             log_to_sheets([
                 timestamp,
@@ -966,21 +985,24 @@ def validate_code(request):
                 return jsonify({"error": f"Unsafe code: {error_message}"}), 400
             
             # Return cloud function response
+            print(f"Generated code: {generated_code}")
             result = call_python({"code": generated_code, "function_id": function_id}, course=course)
-
+            print(f"Result: {result}")
             error_message = result.get("error", None)
-
+            print(f"Error message: {error_message}")
             passed = False
             if "test_results" in result and result["test_results"]:
                 passed = all(test.get("passed", False) for test in result["test_results"])
-            
-                        # Get feedback comparing both prompts and their generated code
+            print(f"Passed: {passed}")
+            # Get feedback comparing both prompts and their generated code
             #if not passed:
             teacher_prompt, teacher_code = get_teacher_prompt(function_id)
+            print(f"Teacher prompt: {teacher_prompt}")
+            print(f"Teacher code: {teacher_code}")
             prompt_feedback = get_prompt_feedback(user_prompt, teacher_prompt, generated_code, teacher_code, passed, provider="OPENAI")
             #else:
             #    prompt_feedback = None
-
+            print(f"Prompt feedback: {prompt_feedback}")
             result.update({
                 "user_email": user_email,
                 "function_id": function_id,
