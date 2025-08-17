@@ -18,6 +18,8 @@ import google.auth
 from google.cloud import secretmanager
 import hashlib
 import io
+import google.auth
+from google.oauth2 import service_account
 
 def access_secret(project_id, secret_id, version_id="latest"):
     client = secretmanager.SecretManagerServiceClient()
@@ -36,6 +38,47 @@ def fetch_json(url):
 def round_down(n, decimals=1):
     multiplier = 10 ** decimals
     return math.floor(n * multiplier) / multiplier
+
+def fetch_users_from_spreadsheet():
+    """Fetches user data from a Google Spreadsheet."""
+    try:
+        # Retrieve spreadsheet ID from Secret Manager
+        spreadsheet_id = access_secret("autograde-314802", "USERS_SPREADSHEET_ID")
+        
+        # Authenticate with Google Sheets API
+        submission_credentials = json.loads(access_secret(
+            project_id="autograde-314802",
+            secret_id="GOOGLE_SUBMISSION_CREDENTIALS"
+        ))
+        creds = service_account.Credentials.from_service_account_info(
+            info=submission_credentials,
+            scopes=['https://www.googleapis.com/auth/spreadsheets.readonly']
+        )
+        service = build('sheets', 'v4', credentials=creds)
+        
+        # Fetch data from the spreadsheet, range is 'users!A:B' based on image
+        sheet = service.spreadsheets()
+        result = sheet.values().get(spreadsheetId=spreadsheet_id, range='users!A:B').execute()
+        spreadsheet_metadata = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+        # Get the course name from the spreadsheet metadata
+        course_name = spreadsheet_metadata.get('properties', {}).get('title')
+        values = result.get('values', [])
+        
+        if not values or len(values) < 2:
+            print("No data found in spreadsheet.")
+            return []
+
+        # Convert rows to a list of dictionaries, mapping columns to 'name' and 'email'
+        # Assumes Column A is 'Nome' and Column B is 'E-mail'
+        users_data = []
+        for row in values[1:]:  # Skip header row
+            if len(row) >= 2:
+                users_data.append(row[1])
+        
+        return {course_name: users_data}
+    except Exception as e:
+        print(f"Error fetching users from spreadsheet: {e}")
+        return []
 
     
 def load_teacher_prompts() -> List[Dict[str, Any]]:
@@ -58,12 +101,12 @@ def load_teacher_prompts() -> List[Dict[str, Any]]:
 
 
 FORBIDDEN_KEYWORDS = ["eval", "exec", "os", "sys", "subprocess"]
-users_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/users.json"
+
 courses_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/courses.json"
 deadlines_url = "https://raw.githubusercontent.com/alexlopespereira/ipynb-autograde/refs/heads/master/data/deadlines.json"  # Update with actual URL
 
 
-users_data = fetch_json(users_url)
+users_data = fetch_users_from_spreadsheet()
 courses_data = fetch_json(courses_url)
 deadlines_data = fetch_json(deadlines_url)
 
